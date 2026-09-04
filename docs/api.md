@@ -64,17 +64,17 @@ doc.transact([](auto& tx) {
 });
 
 // Return-value transaction — lambda return type is deduced
-auto list_id = doc.transact([](Transaction& tx) {
+auto list_id = *doc.transact([](Transaction& tx) {
     return tx.put_object(root, "items", ObjType::list);
 });
 
 // Return-value transaction with patches
-auto [obj_id, patches] = doc.transact_with_patches([](Transaction& tx) {
+auto [obj_id, patches] = *doc.transact_with_patches([](Transaction& tx) {
     return tx.put_object(root, "data", ObjType::map);
 });
 
 // Void transaction with patches
-auto patches = doc.transact_with_patches([](auto& tx) {
+auto patches = *doc.transact_with_patches([](auto& tx) {
     tx.put(root, "x", 42);
 });
 
@@ -91,19 +91,26 @@ doc.transact(
 
 ```cpp
 // Signatures
-void transact(const std::function<void(Transaction&)>& fn, CommitOptions options = {});
+auto transact(const std::function<void(Transaction&)>& fn, CommitOptions options = {})
+    -> std::expected<void, Error>;
 
 template <typename Fn>
-auto transact(Fn&& fn, CommitOptions options = {}) -> std::invoke_result_t<Fn, Transaction&>;
+auto transact(Fn&& fn, CommitOptions options = {}) -> std::expected<T, Error>;
 template <typename Fn>
-void transact(Fn&& fn, CommitOptions options = {});  // void-returning template overload
+auto transact(Fn&& fn, CommitOptions options = {}) -> std::expected<void, Error>;
 
 auto transact_with_patches(const std::function<void(Transaction&)>& fn,
-                           CommitOptions options = {}) -> std::vector<Patch>;
+                           CommitOptions options = {})
+    -> std::expected<std::vector<Patch>, Error>;
 template <typename Fn>
 auto transact_with_patches(Fn&& fn, CommitOptions options = {})
-    -> std::pair<std::invoke_result_t<Fn, Transaction&>, std::vector<Patch>>;
+    -> std::expected<std::pair<T, std::vector<Patch>>, Error>;
 ```
+
+When a callable returns `std::expected<T, Error>`, the runner flattens that result instead of
+nesting it. A returned error rolls back all operations performed by the callable. For
+`transact_with_patches`, an `expected<void, Error>` callable produces the same
+`expected<vector<Patch>, Error>` shape as a void callable.
 
 `CommitOptions::message` is an optional human-readable string. `CommitOptions::time` is an
 optional signed count of milliseconds since the Unix epoch. On commit, `time` becomes
@@ -988,8 +995,8 @@ auto keys = doc.keys(am::root);                         // {"active", "age", "na
 
 ```cpp
 auto doc = am::Document{};
-auto list_id = doc.transact([](am::Transaction& tx) {
-    auto list = tx.put_object(am::root, "items", am::ObjType::list);
+auto list_id = *doc.transact([](am::Transaction& tx) {
+    auto list = *tx.put_object(am::root, "items", am::ObjType::list);
     tx.insert(list, 0, "Milk");
     tx.insert(list, 1, "Eggs");
     return list;
@@ -1006,8 +1013,8 @@ doc.get_path("items", std::size_t{0});          // Value{"Milk"}
 
 ```cpp
 auto doc = am::Document{};
-auto text_id = doc.transact([](am::Transaction& tx) {
-    auto t = tx.put_object(am::root, "content", am::ObjType::text);
+auto text_id = *doc.transact([](am::Transaction& tx) {
+    auto t = *tx.put_object(am::root, "content", am::ObjType::text);
     tx.splice_text(t, 0, 0, "Hello World");
     return t;
 });
@@ -1113,7 +1120,7 @@ for (int i = 0; i < 10; ++i) {
 ### Patches
 
 ```cpp
-auto patches = doc.transact_with_patches([&](auto& tx) {
+auto patches = *doc.transact_with_patches([&](auto& tx) {
     tx.put(am::root, "name", "Alice");
     tx.splice_text(text_id, 5, 6, " C++23");
 });
@@ -1173,8 +1180,8 @@ auto idx = doc.resolve_cursor(list_id, *cur);
 ### Rich Text Marks
 
 ```cpp
-auto text_id = doc.transact([](am::Transaction& tx) {
-    auto t = tx.put_object(am::root, "content", am::ObjType::text);
+auto text_id = *doc.transact([](am::Transaction& tx) {
+    auto t = *tx.put_object(am::root, "content", am::ObjType::text);
     tx.splice_text(t, 0, 0, "Hello World");
     return t;
 });

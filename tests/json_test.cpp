@@ -20,7 +20,7 @@ using json = nlohmann::json;
 
 TEST(GetObjId, map_child) {
     auto doc = am::Document{};
-    auto child_id = doc.transact(
+    auto child_id = *doc.transact(
         [](am::Transaction& tx) { return *tx.put_object(am::root, "nested", am::ObjType::map); });
     auto result = *doc.get_obj_id(am::root, "nested");
     ASSERT_TRUE(result.has_value());
@@ -29,7 +29,7 @@ TEST(GetObjId, map_child) {
 
 TEST(GetObjId, list_child) {
     auto doc = am::Document{};
-    auto list_id = doc.transact([](am::Transaction& tx) {
+    auto list_id = *doc.transact([](am::Transaction& tx) {
         auto list = *tx.put_object(am::root, "items", am::ObjType::list);
         tx.insert_object(list, 0, am::ObjType::map);
         return list;
@@ -341,7 +341,7 @@ TEST(JsonExport, list_of_maps) {
 
 TEST(JsonExport, subtree_export) {
     auto doc = am::Document{};
-    auto config = doc.transact(
+    auto config = *doc.transact(
         [](am::Transaction& tx) { return *tx.put(am::root, "config", am::Map{{"port", 8080}}); });
     auto j = am::json::export_json(doc, config);
     EXPECT_EQ(j["port"], 8080);

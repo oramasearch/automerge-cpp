@@ -24,13 +24,13 @@ absence after the operation's inputs have been validated, such as a missing map 
 | `sync_error` | A sync message or sync-state transition is invalid. |
 | `invalid_operation` | An otherwise well-formed operation is invalid in its context. |
 
-The public-operation table is maintained below as boundary methods adopt these kinds.
-
 ## Public operations
 
 | Function | Failure conditions | Return type |
 |---|---|---|
 | `to_string_view(ErrorKind)` | None | `std::string_view` |
+| `Document::transact` | The callable returns an `Error`; commit finds the transaction already inactive | `std::expected<void, Error>` or `std::expected<T, Error>` matching the callable value |
+| `Document::transact_with_patches` | The callable returns an `Error`; commit finds the transaction already inactive | `std::expected<std::vector<Patch>, Error>` or `std::expected<std::pair<T, std::vector<Patch>>, Error>` matching the callable value |
 | `Transaction::commit`, `rollback` | Transaction is inactive | `std::expected<void, Error>` |
 | `Transaction::put`, `put_object`, `delete_key`, `put_all`, `put_map` | Inactive transaction; unknown object; non-map object; invalid UTF-8 key or string value | `std::expected<void, Error>` or `std::expected<ObjId, Error>` for object creation |
 | `Transaction::insert`, `insert_object`, `insert_all`, `insert_range` | Inactive transaction; unknown object; non-sequence object; insertion index greater than length; invalid UTF-8 string value | `std::expected<void, Error>` or `std::expected<ObjId, Error>` for object creation |

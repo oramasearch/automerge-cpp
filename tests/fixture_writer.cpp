@@ -71,7 +71,7 @@ auto nested_objects() -> am::Document {
 
 auto list_edits() -> am::Document {
     auto document = document_with_actor(std::byte{0x83});
-    const auto list = document.transact([](am::Transaction& transaction) {
+    const auto list = *document.transact([](am::Transaction& transaction) {
         const auto result = *transaction.put_object(am::root, "items", am::ObjType::list);
         transaction.insert(result, 0, "a");
         transaction.insert(result, 1, "b");
@@ -88,7 +88,7 @@ auto list_edits() -> am::Document {
 
 auto unicode_text() -> am::Document {
     auto document = document_with_actor(std::byte{0x84});
-    const auto text = document.transact([](am::Transaction& transaction) {
+    const auto text = *document.transact([](am::Transaction& transaction) {
         const auto result = *transaction.put_object(am::root, "body", am::ObjType::text);
         static_cast<void>(transaction.splice_text(result, 0, 0, "Aé🙂漢字"));
         return result;
@@ -101,7 +101,7 @@ auto unicode_text() -> am::Document {
 
 auto marks() -> am::Document {
     auto document = document_with_actor(std::byte{0x85});
-    const auto text = document.transact([](am::Transaction& transaction) {
+    const auto text = *document.transact([](am::Transaction& transaction) {
         const auto result = *transaction.put_object(am::root, "body", am::ObjType::text);
         static_cast<void>(transaction.splice_text(result, 0, 0, "marked text"));
         return result;
@@ -124,7 +124,7 @@ auto counter_increments() -> am::Document {
 
 auto deletes_tombstones() -> am::Document {
     auto document = document_with_actor(std::byte{0x87});
-    const auto list = document.transact([](am::Transaction& transaction) {
+    const auto list = *document.transact([](am::Transaction& transaction) {
         transaction.put(am::root, "gone", "value");
         const auto result = *transaction.put_object(am::root, "items", am::ObjType::list);
         transaction.insert(result, 0, "first");

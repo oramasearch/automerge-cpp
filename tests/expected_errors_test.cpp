@@ -35,7 +35,7 @@ TEST(ExpectedErrors, mutator_rejects_unknown_object_without_mutation) {
 
 TEST(ExpectedErrors, map_mutator_rejects_list_object_without_mutation) {
     auto document = Document{};
-    const auto list = document.transact(
+    const auto list = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "list", ObjType::list); });
     const auto before = document.save();
     auto error = std::optional<Error>{};
@@ -53,7 +53,7 @@ TEST(ExpectedErrors, map_mutator_rejects_list_object_without_mutation) {
 
 TEST(ExpectedErrors, list_mutator_rejects_out_of_bounds_index_without_mutation) {
     auto document = Document{};
-    const auto list = document.transact(
+    const auto list = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "list", ObjType::list); });
     const auto before = document.save();
     auto error = std::optional<Error>{};
@@ -123,7 +123,7 @@ TEST(ExpectedErrors, compound_mutator_validates_all_entries_before_mutation) {
 
 TEST(ExpectedErrors, text_splice_rejects_out_of_bounds_range_without_mutation) {
     auto document = Document{};
-    const auto text = document.transact(
+    const auto text = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "text", ObjType::text); });
     const auto before = document.save();
     auto error = std::optional<Error>{};
@@ -158,7 +158,7 @@ TEST(ExpectedErrors, increment_rejects_non_counter_without_mutation) {
 
 TEST(ExpectedErrors, mark_rejects_invalid_range_without_mutation) {
     auto document = Document{};
-    const auto text = document.transact([](Transaction& transaction) {
+    const auto text = *document.transact([](Transaction& transaction) {
         const auto object = *transaction.put(root, "text", ObjType::text);
         transaction.splice_text(object, 0, 0, "x");
         return object;
@@ -211,9 +211,43 @@ TEST(ExpectedErrors, rolled_back_transaction_rejects_further_use_without_mutatio
     EXPECT_EQ(document.save(), before);
 }
 
+TEST(ExpectedErrors, transaction_runner_rolls_back_a_returned_error) {
+    auto document = Document{};
+    const auto before = document.save();
+
+    const auto result = document.transact([](Transaction& transaction) {
+        const auto first = transaction.put(root, "temporary", 1);
+        if (!first) {
+            return first;
+        }
+        return transaction.put(unknown_object(), "key", 2);
+    });
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_obj_id);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, patch_transaction_runner_rolls_back_a_returned_error) {
+    auto document = Document{};
+    const auto before = document.save();
+
+    const auto result = document.transact_with_patches([](Transaction& transaction) {
+        const auto first = transaction.put(root, "temporary", 1);
+        if (!first) {
+            return first;
+        }
+        return transaction.put(unknown_object(), "key", 2);
+    });
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_obj_id);
+    EXPECT_EQ(document.save(), before);
+}
+
 TEST(ExpectedErrors, transaction_lookup_rejects_wrong_object_type_without_mutation) {
     auto document = Document{};
-    const auto list = document.transact(
+    const auto list = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "list", ObjType::list); });
     const auto before = document.save();
     auto error = std::optional<Error>{};
@@ -231,7 +265,7 @@ TEST(ExpectedErrors, transaction_lookup_rejects_wrong_object_type_without_mutati
 
 TEST(ExpectedErrors, transaction_list_lookup_rejects_out_of_bounds_index_without_mutation) {
     auto document = Document{};
-    const auto list = document.transact(
+    const auto list = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "list", ObjType::list); });
     const auto before = document.save();
     auto error = std::optional<Error>{};
@@ -260,7 +294,7 @@ TEST(ExpectedErrors, document_lookup_rejects_unknown_object_without_mutation) {
 
 TEST(ExpectedErrors, document_map_lookup_rejects_sequence_object_without_mutation) {
     auto document = Document{};
-    const auto list = document.transact(
+    const auto list = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "list", ObjType::list); });
     const auto before = document.save();
 
@@ -273,7 +307,7 @@ TEST(ExpectedErrors, document_map_lookup_rejects_sequence_object_without_mutatio
 
 TEST(ExpectedErrors, document_list_lookup_rejects_out_of_bounds_index_without_mutation) {
     auto document = Document{};
-    const auto list = document.transact(
+    const auto list = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "list", ObjType::list); });
     const auto before = document.save();
 
@@ -298,7 +332,7 @@ TEST(ExpectedErrors, document_lookup_rejects_invalid_utf8_key_without_mutation) 
 
 TEST(ExpectedErrors, document_queries_reject_wrong_object_types_without_mutation) {
     auto document = Document{};
-    const auto list = document.transact(
+    const auto list = *document.transact(
         [](Transaction& transaction) { return *transaction.put(root, "list", ObjType::list); });
     const auto before = document.save();
 
@@ -337,12 +371,12 @@ TEST(ExpectedErrors, path_lookup_rejects_scalar_traversal_without_mutation) {
 
 TEST(ExpectedErrors, cursors_reject_invalid_indices_and_foreign_objects_without_mutation) {
     auto document = Document{};
-    const auto first = document.transact([](Transaction& transaction) {
+    const auto first = *document.transact([](Transaction& transaction) {
         const auto list = *transaction.put(root, "first", ObjType::list);
         transaction.insert(list, 0, "value");
         return list;
     });
-    const auto second = document.transact([](Transaction& transaction) {
+    const auto second = *document.transact([](Transaction& transaction) {
         const auto list = *transaction.put(root, "second", ObjType::list);
         transaction.insert(list, 0, "value");
         return list;

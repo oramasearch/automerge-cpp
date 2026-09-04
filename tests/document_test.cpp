@@ -611,10 +611,9 @@ TEST(Document, unicode_text_patches_use_scalar_indices) {
         tx.splice_text(text_id, 0, 0, "é界🙂");
     });
 
-    auto [result, patches] =
-        doc.transact_with_patches([&](auto& tx) { return tx.splice_text(text_id, 1, 1, "猫🚀"); });
+    auto patches =
+        *doc.transact_with_patches([&](auto& tx) { return tx.splice_text(text_id, 1, 1, "猫🚀"); });
 
-    ASSERT_TRUE(result.has_value());
     ASSERT_EQ(patches.size(), 1u);
     const auto* splice = std::get_if<PatchSpliceText>(&patches[0].action);
     ASSERT_NE(splice, nullptr);
@@ -921,15 +920,15 @@ TEST(Transaction, all_document_transaction_forms_accept_commit_options) {
     auto doc = make_doc(13);
 
     const auto object =
-        doc.transact([](Transaction& tx) { return *tx.put_object(root, "items", ObjType::list); },
-                     CommitOptions{.message = "create items", .time = std::int64_t{1000}});
-    const auto [result, result_patches] = doc.transact_with_patches(
+        *doc.transact([](Transaction& tx) { return *tx.put_object(root, "items", ObjType::list); },
+                      CommitOptions{.message = "create items", .time = std::int64_t{1000}});
+    const auto [result, result_patches] = *doc.transact_with_patches(
         [&](Transaction& tx) {
             tx.insert(object, 0, "first");
             return std::int64_t{7};
         },
         CommitOptions{.message = "insert first", .time = std::int64_t{2000}});
-    const auto void_patches = doc.transact_with_patches(
+    const auto void_patches = *doc.transact_with_patches(
         [&](Transaction& tx) { tx.insert(object, 1, "second"); },
         CommitOptions{.message = "insert second", .time = std::int64_t{3000}});
 
@@ -2499,7 +2498,7 @@ TEST(Document, sync_with_deletes) {
 
 TEST(Document, transact_with_patches_map_put) {
     auto doc = Document{};
-    auto patches = doc.transact_with_patches([](auto& tx) {
+    auto patches = *doc.transact_with_patches([](auto& tx) {
         tx.put(root, "name", std::string{"Alice"});
         tx.put(root, "age", std::int64_t{30});
     });
@@ -2530,9 +2529,7 @@ TEST(Document, transact_with_patches_map_delete) {
         tx.put(root, "key", std::int64_t{1});
     });
 
-    auto patches = doc.transact_with_patches([](auto& tx) {
-        tx.delete_key(root, "key");
-    });
+    auto patches = *doc.transact_with_patches([](auto& tx) { tx.delete_key(root, "key"); });
 
     EXPECT_EQ(patches.size(), 1u);
     auto* del = std::get_if<PatchDelete>(&patches[0].action);
@@ -2546,7 +2543,7 @@ TEST(Document, transact_with_patches_list_insert) {
     ObjId list_id;
     doc.transact([&](auto& tx) { list_id = *tx.put_object(root, "items", ObjType::list); });
 
-    auto patches = doc.transact_with_patches([&](auto& tx) {
+    auto patches = *doc.transact_with_patches([&](auto& tx) {
         tx.insert(list_id, 0, std::string{"a"});
         tx.insert(list_id, 1, std::string{"b"});
     });
@@ -2573,9 +2570,7 @@ TEST(Document, transact_with_patches_list_delete) {
         tx.insert(list_id, 1, std::string{"b"});
     });
 
-    auto patches = doc.transact_with_patches([&](auto& tx) {
-        tx.delete_index(list_id, 0);
-    });
+    auto patches = *doc.transact_with_patches([&](auto& tx) { tx.delete_index(list_id, 0); });
 
     EXPECT_EQ(patches.size(), 1u);
     auto* del = std::get_if<PatchDelete>(&patches[0].action);
@@ -2589,9 +2584,8 @@ TEST(Document, transact_with_patches_splice_text_insert_only) {
     ObjId text_id;
     doc.transact([&](auto& tx) { text_id = *tx.put_object(root, "content", ObjType::text); });
 
-    auto patches = doc.transact_with_patches([&](auto& tx) {
-        tx.splice_text(text_id, 0, 0, "Hello");
-    });
+    auto patches =
+        *doc.transact_with_patches([&](auto& tx) { tx.splice_text(text_id, 0, 0, "Hello"); });
 
     // Should coalesce into a single PatchSpliceText
     EXPECT_EQ(patches.size(), 1u);
@@ -2610,9 +2604,8 @@ TEST(Document, transact_with_patches_splice_text_replace) {
         tx.splice_text(text_id, 0, 0, "Hello World");
     });
 
-    auto patches = doc.transact_with_patches([&](auto& tx) {
-        tx.splice_text(text_id, 5, 6, " C++23");
-    });
+    auto patches =
+        *doc.transact_with_patches([&](auto& tx) { tx.splice_text(text_id, 5, 6, " C++23"); });
 
     // Should coalesce: delete 6 + insert " C++23"
     EXPECT_EQ(patches.size(), 1u);
@@ -2632,9 +2625,7 @@ TEST(Document, transact_with_patches_counter_increment) {
         tx.put(root, "views", Counter{0});
     });
 
-    auto patches = doc.transact_with_patches([](auto& tx) {
-        tx.increment(root, "views", 5);
-    });
+    auto patches = *doc.transact_with_patches([](auto& tx) { tx.increment(root, "views", 5); });
 
     EXPECT_EQ(patches.size(), 1u);
     auto* inc = std::get_if<PatchIncrement>(&patches[0].action);
@@ -2644,9 +2635,8 @@ TEST(Document, transact_with_patches_counter_increment) {
 
 TEST(Document, transact_with_patches_make_object) {
     auto doc = Document{};
-    auto patches = doc.transact_with_patches([](auto& tx) {
-        tx.put_object(root, "nested", ObjType::map);
-    });
+    auto patches =
+        *doc.transact_with_patches([](auto& tx) { tx.put_object(root, "nested", ObjType::map); });
 
     EXPECT_EQ(patches.size(), 1u);
     auto* put = std::get_if<PatchPut>(&patches[0].action);
@@ -2658,7 +2648,7 @@ TEST(Document, transact_with_patches_make_object) {
 
 TEST(Document, transact_with_patches_empty_transaction) {
     auto doc = Document{};
-    auto patches = doc.transact_with_patches([](auto& /*tx*/) {
+    auto patches = *doc.transact_with_patches([](auto& /*tx*/) {
         // no ops
     });
 
@@ -2734,7 +2724,7 @@ TEST(Document, merge_with_patches_matches_visible_map_diff_in_both_directions) {
 
 TEST(Document, apply_changes_with_patches_reports_remote_list_insert_and_delete) {
     auto source = make_doc(1);
-    const auto list_id = source.transact([](auto& tx) {
+    const auto list_id = *source.transact([](auto& tx) {
         const auto list = *tx.put_object(root, "items", ObjType::list);
         tx.insert(list, 0, std::string{"a"});
         tx.insert(list, 1, std::string{"b"});
@@ -2774,7 +2764,7 @@ TEST(Document, apply_changes_with_patches_reports_remote_list_insert_and_delete)
 
 TEST(Document, apply_changes_with_patches_reports_remote_text_splice) {
     auto source = make_doc(1);
-    const auto text_id = source.transact([](auto& tx) {
+    const auto text_id = *source.transact([](auto& tx) {
         const auto text = *tx.put_object(root, "body", ObjType::text);
         tx.splice_text(text, 0, 0, "Hello world");
         return text;
@@ -3603,9 +3593,8 @@ TEST(Document, mark_transact_with_patches_mark_only_transaction) {
     // Mark-only transaction: marks are metadata that don't produce
     // element-level patches (put/insert/delete). The mark is stored
     // and queryable via marks() instead.
-    auto patches = doc.transact_with_patches([&](auto& tx) {
-        tx.mark(text_id, 0, 5, "bold", true);
-    });
+    auto patches =
+        *doc.transact_with_patches([&](auto& tx) { tx.mark(text_id, 0, 5, "bold", true); });
 
     // Marks don't produce element-level patches
     EXPECT_TRUE(patches.empty());
@@ -4821,7 +4810,7 @@ TEST(Document, time_travel_text_at_multiple_heads) {
 
 TEST(Document, patches_for_nested_object_creation) {
     auto doc = Document{};
-    auto patches = doc.transact_with_patches([](auto& tx) {
+    auto patches = *doc.transact_with_patches([](auto& tx) {
         auto map_id = *tx.put_object(root, "config", ObjType::map);
         tx.put(map_id, "theme", std::string{"dark"});
         tx.put(map_id, "size", std::int64_t{14});
@@ -4840,7 +4829,7 @@ TEST(Document, patches_for_list_operations) {
         tx.insert(list_id, 1, std::string{"b"});
     });
 
-    auto patches = doc.transact_with_patches([&](auto& tx) {
+    auto patches = *doc.transact_with_patches([&](auto& tx) {
         tx.insert(list_id, 1, std::string{"X"});
         tx.delete_index(list_id, 0);
     });
@@ -5568,7 +5557,7 @@ TEST(Document, big_list_creation_and_access) {
 
     // Patches should account for all insertions
     auto doc2 = make_doc(2);
-    auto patches = doc2.transact_with_patches([&](auto& tx) {
+    auto patches = *doc2.transact_with_patches([&](auto& tx) {
         auto lid = *tx.put_object(root, "big", ObjType::list);
         for (int i = 0; i < count; ++i)
             tx.insert(lid, static_cast<std::size_t>(i), std::int64_t{i});
@@ -5599,7 +5588,7 @@ TEST(Document, large_list_patches_have_correct_paths) {
     auto list_id = ObjId{};
     constexpr int count = 600;
 
-    auto patches = doc.transact_with_patches([&](auto& tx) {
+    auto patches = *doc.transact_with_patches([&](auto& tx) {
         list_id = *tx.put_object(root, "items", ObjType::list);
         for (int i = 0; i < count; ++i)
             tx.insert(list_id, static_cast<std::size_t>(i), std::int64_t{i});
@@ -6066,7 +6055,7 @@ TEST(Document, set_string_overload) {
 TEST(Document, transact_returns_obj_id) {
     auto doc = make_doc(1);
     auto list_id =
-        doc.transact([](Transaction& tx) { return *tx.put_object(root, "items", ObjType::list); });
+        *doc.transact([](Transaction& tx) { return *tx.put_object(root, "items", ObjType::list); });
     EXPECT_NE(list_id, root);
     auto type = doc.object_type(list_id);
     ASSERT_TRUE(type.has_value());
@@ -6075,7 +6064,7 @@ TEST(Document, transact_returns_obj_id) {
 
 TEST(Document, transact_returns_int) {
     auto doc = make_doc(1);
-    auto result = doc.transact([](Transaction& tx) -> int {
+    auto result = *doc.transact([](Transaction& tx) -> int {
         tx.put(root, "x", std::int64_t{42});
         return 123;
     });
@@ -6085,7 +6074,7 @@ TEST(Document, transact_returns_int) {
 
 TEST(Document, transact_returns_string) {
     auto doc = make_doc(1);
-    auto result = doc.transact([](Transaction& tx) -> std::string {
+    auto result = *doc.transact([](Transaction& tx) -> std::string {
         tx.put(root, "greeting", std::string{"hello"});
         return "done";
     });
@@ -6104,7 +6093,7 @@ TEST(Document, transact_void_template_overload) {
 
 TEST(Document, transact_with_patches_returns_pair) {
     auto doc = make_doc(1);
-    auto [list_id, patches] = doc.transact_with_patches(
+    auto [list_id, patches] = *doc.transact_with_patches(
         [](Transaction& tx) { return *tx.put_object(root, "items", ObjType::list); });
     EXPECT_NE(list_id, root);
     EXPECT_FALSE(patches.empty());
@@ -6314,7 +6303,7 @@ TEST(Document, overload_helper_multi_type) {
 
 TEST(Document, put_list_initializer_creates_populated_list) {
     auto doc = Document{};
-    auto items = doc.transact(
+    auto items = *doc.transact(
         [](auto& tx) { return *tx.put(root, "items", List{"Milk", "Eggs", "Bread"}); });
     EXPECT_EQ(*doc.length(items), 3u);
     EXPECT_EQ(*doc.get<std::string>(items, std::size_t{0}), "Milk");
@@ -6324,7 +6313,7 @@ TEST(Document, put_list_initializer_creates_populated_list) {
 
 TEST(Document, put_list_empty_creates_empty_list) {
     auto doc = Document{};
-    auto items = doc.transact([](auto& tx) { return *tx.put(root, "items", List{}); });
+    auto items = *doc.transact([](auto& tx) { return *tx.put(root, "items", List{}); });
     EXPECT_EQ(*doc.length(items), 0u);
     auto type = doc.object_type(items);
     ASSERT_TRUE(type.has_value());
@@ -6333,7 +6322,7 @@ TEST(Document, put_list_empty_creates_empty_list) {
 
 TEST(Document, put_map_initializer_creates_populated_map) {
     auto doc = Document{};
-    auto config = doc.transact([](auto& tx) {
+    auto config = *doc.transact([](auto& tx) {
         return *tx.put(root, "config", Map{{"port", 8080}, {"host", "localhost"}});
     });
     EXPECT_EQ(*doc.get<std::int64_t>(config, "port"), 8080);
@@ -6342,7 +6331,7 @@ TEST(Document, put_map_initializer_creates_populated_map) {
 
 TEST(Document, put_map_empty_creates_empty_map) {
     auto doc = Document{};
-    auto m = doc.transact([](auto& tx) { return *tx.put(root, "data", Map{}); });
+    auto m = *doc.transact([](auto& tx) { return *tx.put(root, "data", Map{}); });
     EXPECT_EQ(*doc.length(m), 0u);
     auto type = doc.object_type(m);
     ASSERT_TRUE(type.has_value());
@@ -6351,7 +6340,7 @@ TEST(Document, put_map_empty_creates_empty_map) {
 
 TEST(Document, insert_list_initializer_into_list) {
     auto doc = Document{};
-    auto outer = doc.transact([](auto& tx) {
+    auto outer = *doc.transact([](auto& tx) {
         auto outer = *tx.put(root, "outer", ObjType::list);
         tx.insert(outer, 0, List{"a", "b", "c"});
         return outer;
@@ -6364,7 +6353,7 @@ TEST(Document, insert_list_initializer_into_list) {
 
 TEST(Document, insert_map_initializer_into_list) {
     auto doc = Document{};
-    auto outer = doc.transact([](auto& tx) {
+    auto outer = *doc.transact([](auto& tx) {
         auto outer = *tx.put(root, "records", ObjType::list);
         tx.insert(outer, 0, Map{{"name", "Alice"}, {"age", 30}});
         return outer;
@@ -6377,8 +6366,8 @@ TEST(Document, insert_map_initializer_into_list) {
 
 TEST(Document, list_initializer_mixed_types) {
     auto doc = Document{};
-    auto items =
-        doc.transact([](auto& tx) { return *tx.put(root, "mixed", List{1, "hello", 3.14, true}); });
+    auto items = *doc.transact(
+        [](auto& tx) { return *tx.put(root, "mixed", List{1, "hello", 3.14, true}); });
     EXPECT_EQ(*doc.length(items), 4u);
     EXPECT_EQ(*doc.get<std::int64_t>(items, std::size_t{0}), 1);
     EXPECT_EQ(*doc.get<std::string>(items, std::size_t{1}), "hello");
@@ -6407,7 +6396,7 @@ TEST(Document, list_initializer_survives_save_load) {
 TEST(Document, put_bare_initializer_list_creates_list) {
     auto doc = Document{};
     auto items =
-        doc.transact([](auto& tx) { return *tx.put(root, "items", {"Milk", "Eggs", "Bread"}); });
+        *doc.transact([](auto& tx) { return *tx.put(root, "items", {"Milk", "Eggs", "Bread"}); });
     EXPECT_EQ(*doc.length(items), 3u);
     EXPECT_EQ(*doc.get<std::string>(items, std::size_t{0}), "Milk");
     EXPECT_EQ(*doc.get<std::string>(items, std::size_t{2}), "Bread");
@@ -6415,7 +6404,7 @@ TEST(Document, put_bare_initializer_list_creates_list) {
 
 TEST(Document, put_bare_initializer_list_creates_map) {
     auto doc = Document{};
-    auto config = doc.transact([](auto& tx) {
+    auto config = *doc.transact([](auto& tx) {
         return *tx.put(root, "config", {{"port", std::int64_t{8080}}, {"host", "localhost"}});
     });
     EXPECT_EQ(*doc.get<std::int64_t>(config, "port"), 8080);
@@ -6424,7 +6413,7 @@ TEST(Document, put_bare_initializer_list_creates_map) {
 
 TEST(Document, insert_bare_initializer_list_into_list) {
     auto doc = Document{};
-    auto outer = doc.transact([](auto& tx) {
+    auto outer = *doc.transact([](auto& tx) {
         auto outer = *tx.put(root, "outer", ObjType::list);
         tx.insert(outer, 0, {"a", "b", "c"});
         return outer;
@@ -6436,7 +6425,7 @@ TEST(Document, insert_bare_initializer_list_into_list) {
 
 TEST(Document, insert_bare_initializer_map_into_list) {
     auto doc = Document{};
-    auto outer = doc.transact([](auto& tx) {
+    auto outer = *doc.transact([](auto& tx) {
         auto outer = *tx.put(root, "records", ObjType::list);
         tx.insert(outer, 0, {{"name", "Alice"}, {"age", std::int64_t{30}}});
         return outer;
@@ -6451,7 +6440,7 @@ TEST(Document, insert_bare_initializer_map_into_list) {
 TEST(Document, put_vector_creates_list) {
     auto doc = Document{};
     auto tags = std::vector<std::string>{"crdt", "cpp", "collaborative"};
-    auto list = doc.transact([&](auto& tx) { return *tx.put(root, "tags", tags); });
+    auto list = *doc.transact([&](auto& tx) { return *tx.put(root, "tags", tags); });
     EXPECT_EQ(*doc.length(list), 3u);
     EXPECT_EQ(*doc.get<std::string>(list, std::size_t{0}), "crdt");
     EXPECT_EQ(*doc.get<std::string>(list, std::size_t{2}), "collaborative");
@@ -6463,7 +6452,7 @@ TEST(Document, put_std_map_creates_map) {
         {"w", ScalarValue{std::int64_t{800}}},
         {"h", ScalarValue{std::int64_t{600}}},
     };
-    auto obj = doc.transact([&](auto& tx) { return *tx.put(root, "dims", dims); });
+    auto obj = *doc.transact([&](auto& tx) { return *tx.put(root, "dims", dims); });
     EXPECT_EQ(*doc.get<std::int64_t>(obj, "w"), 800);
     EXPECT_EQ(*doc.get<std::int64_t>(obj, "h"), 600);
 }
@@ -6471,7 +6460,7 @@ TEST(Document, put_std_map_creates_map) {
 TEST(Document, put_set_creates_list) {
     auto doc = Document{};
     auto unique = std::set<std::string>{"alpha", "beta", "gamma"};
-    auto list = doc.transact([&](auto& tx) { return *tx.put(root, "sorted", unique); });
+    auto list = *doc.transact([&](auto& tx) { return *tx.put(root, "sorted", unique); });
     EXPECT_EQ(*doc.length(list), 3u);
     // std::set is sorted, so alpha < beta < gamma
     EXPECT_EQ(*doc.get<std::string>(list, std::size_t{0}), "alpha");
@@ -6483,7 +6472,7 @@ TEST(Document, insert_vector_into_list) {
         ScalarValue{std::int64_t{10}},
         ScalarValue{std::int64_t{20}},
     };
-    auto outer = doc.transact([&](auto& tx) {
+    auto outer = *doc.transact([&](auto& tx) {
         auto outer = *tx.put(root, "outer", ObjType::list);
         tx.insert(outer, 0, nums);
         return outer;
@@ -6500,7 +6489,7 @@ TEST(Document, insert_std_map_into_list) {
         {"name", ScalarValue{std::string{"Alice"}}},
         {"score", ScalarValue{std::int64_t{100}}},
     };
-    auto outer = doc.transact([&](auto& tx) {
+    auto outer = *doc.transact([&](auto& tx) {
         auto outer = *tx.put(root, "records", ObjType::list);
         tx.insert(outer, 0, record);
         return outer;
@@ -6600,7 +6589,7 @@ TEST(Document, map_initializer_survives_save_load) {
 TEST(Document, bare_initializer_list_mixed_types) {
     auto doc = Document{};
     auto list_id =
-        doc.transact([](auto& tx) { return *tx.put(root, "mixed", {1, "two", 3.0, true}); });
+        *doc.transact([](auto& tx) { return *tx.put(root, "mixed", {1, "two", 3.0, true}); });
     EXPECT_EQ(*doc.length(list_id), 4);
     EXPECT_EQ(get_scalar<std::int64_t>(*doc.get(list_id, std::size_t{0})), 1);
     EXPECT_EQ(get_scalar<std::string>(*doc.get(list_id, std::size_t{1})), "two");
@@ -6623,7 +6612,7 @@ TEST(Document, bare_initializer_survives_save_load) {
 
 TEST(Document, put_set_creates_sorted_list) {
     auto doc = Document{};
-    auto list_id = doc.transact([](auto& tx) {
+    auto list_id = *doc.transact([](auto& tx) {
         auto vals = std::set<std::string>{"cherry", "apple", "banana"};
         return *tx.put(root, "sorted", vals);
     });
@@ -6636,7 +6625,7 @@ TEST(Document, put_set_creates_sorted_list) {
 
 TEST(Document, put_empty_vector_creates_empty_list) {
     auto doc = Document{};
-    auto list_id = doc.transact([](auto& tx) {
+    auto list_id = *doc.transact([](auto& tx) {
         auto empty = std::vector<std::string>{};
         return *tx.put(root, "empty", empty);
     });
@@ -6645,7 +6634,7 @@ TEST(Document, put_empty_vector_creates_empty_list) {
 
 TEST(Document, put_empty_std_map_creates_empty_map) {
     auto doc = Document{};
-    auto map_id = doc.transact([](auto& tx) {
+    auto map_id = *doc.transact([](auto& tx) {
         auto empty = std::map<std::string, ScalarValue>{};
         return *tx.put(root, "empty", empty);
     });

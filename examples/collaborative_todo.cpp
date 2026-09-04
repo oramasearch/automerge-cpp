@@ -31,7 +31,7 @@ int main() {
     alice_doc.set_actor_id(am::ActorId{alice_id});
 
     // Bare initializer list — creates the todos list in one call
-    auto todo_list = alice_doc.transact([](am::Transaction& tx) {
+    auto todo_list = *alice_doc.transact([](am::Transaction& tx) {
         tx.put(am::root, "title", "Team Tasks");
         return *tx.put(am::root, "todos", {"Set up CI pipeline", "Write unit tests"});
     });

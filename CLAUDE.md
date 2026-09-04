@@ -53,7 +53,7 @@ automerge-cpp/
 │   │       └── change_op_columns.hpp       #       op column encoding/decoding (14 parallel columns)
 │   └── sync/                               #   Sync protocol internals
 │       └── bloom_filter.hpp                #     bloom filter (10 bits/entry, 7 probes)
-├── tests/                                  # TESTS (Google Test) — 677 tests
+├── tests/                                  # TESTS (Google Test) — 679 tests
 │   ├── CMakeLists.txt
 │   ├── error_test.cpp
 │   ├── expected_errors_test.cpp
@@ -235,13 +235,13 @@ See [docs/plans/architecture.md](docs/plans/architecture.md) for the full design
 
 ## Testing
 
-677 tests across 17 test files. Uses Google Test (fetched via CMake FetchContent), plus two
+679 tests across 17 test files. Uses Google Test (fetched via CMake FetchContent), plus two
 compatibility CTest steps when Cargo is available.
 
 | Test File | Count | Covers |
 |-----------|-------|--------|
 | `error_test.cpp` | 4 | Error, ErrorKind |
-| `expected_errors_test.cpp` | 24 | Checked public-boundary failures and mutation atomicity |
+| `expected_errors_test.cpp` | 26 | Checked public-boundary failures and mutation atomicity |
 | `types_test.cpp` | 22 | ActorId, ChangeHash, OpId, ObjId, Prop |
 | `value_test.cpp` | 19 | ScalarValue, Value, ObjType, Null, Counter, Timestamp |
 | `op_test.cpp` | 4 | Op, OpType |

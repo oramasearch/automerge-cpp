@@ -33,6 +33,39 @@ namespace automerge_cpp {
 
 namespace detail {
 struct DocState;
+
+template <typename T> struct IsErrorExpected : std::false_type {};
+
+template <typename T> struct IsErrorExpected<std::expected<T, Error>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_error_expected_v = IsErrorExpected<std::remove_cvref_t<T>>::value;
+
+template <typename T> struct TransactionResult {
+    using type = std::expected<T, Error>;
+};
+
+template <typename T> struct TransactionResult<std::expected<T, Error>> {
+    using type = std::expected<T, Error>;
+};
+
+template <typename T>
+using transaction_result_t = typename TransactionResult<std::remove_cvref_t<T>>::type;
+
+template <typename T> struct TransactionPatchResult {
+    using type = std::expected<std::pair<T, std::vector<Patch>>, Error>;
+};
+
+template <typename T> struct TransactionPatchResult<std::expected<T, Error>> {
+    using type = std::expected<std::pair<T, std::vector<Patch>>, Error>;
+};
+
+template <> struct TransactionPatchResult<std::expected<void, Error>> {
+    using type = std::expected<std::vector<Patch>, Error>;
+};
+
+template <typename T>
+using transaction_patch_result_t = typename TransactionPatchResult<std::remove_cvref_t<T>>::type;
 }  // namespace detail
 
 /// A CRDT document that supports concurrent editing and deterministic merge.
@@ -98,26 +131,28 @@ public:
     /// is rolled back.
     /// @param fn A function that receives a Transaction reference.
     /// @param options Optional metadata for the committed change.
-    void transact(const std::function<void(Transaction&)>& fn, CommitOptions options = {});
+    auto transact(const std::function<void(Transaction&)>& fn, CommitOptions options = {})
+        -> std::expected<void, Error>;
 
     /// Execute a function within a transaction and return its result.
     ///
     /// @code
-    /// auto list_id = doc.transact([](Transaction& tx) {
+    /// auto list_id = *doc.transact([](Transaction& tx) {
     ///     return tx.put_object(root, "items", ObjType::list);
     /// });
     /// @endcode
     template <typename Fn>
         requires std::invocable<Fn, Transaction&> &&
                  (!std::is_void_v<std::invoke_result_t<Fn, Transaction&>>)
-    auto transact(Fn&& fn, CommitOptions options = {}) -> std::invoke_result_t<Fn, Transaction&>;
+    auto transact(Fn&& fn, CommitOptions options = {})
+        -> detail::transaction_result_t<std::invoke_result_t<Fn, Transaction&>>;
 
     /// Execute a void function within a transaction (template overload).
     template <typename Fn>
         requires std::invocable<Fn, Transaction&> &&
                  std::is_void_v<std::invoke_result_t<Fn, Transaction&>> &&
                  (!std::convertible_to<Fn, std::function<void(Transaction&)>>)
-    void transact(Fn&& fn, CommitOptions options = {});
+    auto transact(Fn&& fn, CommitOptions options = {}) -> std::expected<void, Error>;
 
     // -- Reading: map operations ----------------------------------------------
 
@@ -359,11 +394,12 @@ public:
     /// @param options Optional metadata for the committed change.
     /// @return The patches produced by the transaction.
     auto transact_with_patches(const std::function<void(Transaction&)>& fn,
-                               CommitOptions options = {}) -> std::vector<Patch>;
+                               CommitOptions options = {})
+        -> std::expected<std::vector<Patch>, Error>;
 
     /// Execute a transaction, return both the function result and patches.
     /// @code
-    /// auto [list_id, patches] = doc.transact_with_patches([](Transaction& tx) {
+    /// auto [list_id, patches] = *doc.transact_with_patches([](Transaction& tx) {
     ///     return tx.put_object(root, "items", ObjType::list);
     /// });
     /// @endcode
@@ -371,7 +407,7 @@ public:
         requires std::invocable<Fn, Transaction&> &&
                  (!std::is_void_v<std::invoke_result_t<Fn, Transaction&>>)
     auto transact_with_patches(Fn&& fn, CommitOptions options = {})
-        -> std::pair<std::invoke_result_t<Fn, Transaction&>, std::vector<Patch>>;
+        -> detail::transaction_patch_result_t<std::invoke_result_t<Fn, Transaction&>>;
 
     // -- Historical reads (time travel) ---------------------------------------
 
@@ -481,15 +517,29 @@ private:
 template <typename Fn>
     requires std::invocable<Fn, Transaction&> &&
              (!std::is_void_v<std::invoke_result_t<Fn, Transaction&>>)
-auto Document::transact(Fn&& fn, CommitOptions options) -> std::invoke_result_t<Fn, Transaction&> {
+auto Document::transact(Fn&& fn, CommitOptions options)
+    -> detail::transaction_result_t<std::invoke_result_t<Fn, Transaction&>> {
     auto lock = std::unique_lock{mutex_};
     auto tx = Transaction{*state_};
     try {
         auto result = fn(tx);
-        tx.commit(std::move(options));
-        return result;
+        if constexpr (detail::is_error_expected_v<decltype(result)>) {
+            if (!result) {
+                static_cast<void>(tx.rollback());
+                return std::unexpected{result.error()};
+            }
+        }
+        const auto committed = tx.commit(std::move(options));
+        if (!committed) {
+            return std::unexpected{committed.error()};
+        }
+        if constexpr (detail::is_error_expected_v<decltype(result)>) {
+            return result;
+        } else {
+            return std::expected<std::remove_cvref_t<decltype(result)>, Error>{std::move(result)};
+        }
     } catch (...) {
-        tx.rollback();
+        static_cast<void>(tx.rollback());
         throw;
     }
 }
@@ -498,14 +548,14 @@ template <typename Fn>
     requires std::invocable<Fn, Transaction&> &&
              std::is_void_v<std::invoke_result_t<Fn, Transaction&>> &&
              (!std::convertible_to<Fn, std::function<void(Transaction&)>>)
-void Document::transact(Fn&& fn, CommitOptions options) {
+auto Document::transact(Fn&& fn, CommitOptions options) -> std::expected<void, Error> {
     auto lock = std::unique_lock{mutex_};
     auto tx = Transaction{*state_};
     try {
         fn(tx);
-        tx.commit(std::move(options));
+        return tx.commit(std::move(options));
     } catch (...) {
-        tx.rollback();
+        static_cast<void>(tx.rollback());
         throw;
     }
 }
@@ -514,16 +564,36 @@ template <typename Fn>
     requires std::invocable<Fn, Transaction&> &&
              (!std::is_void_v<std::invoke_result_t<Fn, Transaction&>>)
 auto Document::transact_with_patches(Fn&& fn, CommitOptions options)
-    -> std::pair<std::invoke_result_t<Fn, Transaction&>, std::vector<Patch>> {
+    -> detail::transaction_patch_result_t<std::invoke_result_t<Fn, Transaction&>> {
     auto lock = std::unique_lock{mutex_};
     auto tx = Transaction{*state_};
     try {
         auto result = fn(tx);
+        if constexpr (detail::is_error_expected_v<decltype(result)>) {
+            if (!result) {
+                static_cast<void>(tx.rollback());
+                return std::unexpected{result.error()};
+            }
+        }
         auto ops = tx.pending_ops_;
-        tx.commit(std::move(options));
-        return {std::move(result), ops_to_patches_internal(ops)};
+        const auto committed = tx.commit(std::move(options));
+        if (!committed) {
+            return std::unexpected{committed.error()};
+        }
+        auto patches = ops_to_patches_internal(ops);
+        if constexpr (detail::is_error_expected_v<decltype(result)>) {
+            using Value = typename std::remove_cvref_t<decltype(result)>::value_type;
+            if constexpr (std::is_void_v<Value>) {
+                return patches;
+            } else {
+                return std::pair<Value, std::vector<Patch>>{std::move(*result), std::move(patches)};
+            }
+        } else {
+            return std::pair<std::remove_cvref_t<decltype(result)>, std::vector<Patch>>{
+                std::move(result), std::move(patches)};
+        }
     } catch (...) {
-        tx.rollback();
+        static_cast<void>(tx.rollback());
         throw;
     }
 }

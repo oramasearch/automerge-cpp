@@ -12,7 +12,7 @@ This is a **from-scratch** reimplementation, not a wrapper. It mirrors the upstr
 Automerge semantics while embracing idiomatic C++23: algebraic types, ranges pipelines,
 strong types, and an API inspired by [nlohmann/json](https://github.com/nlohmann/json).
 
-**677 GoogleTest cases passing** across 17 test files, plus two compatibility CTest steps when
+**679 GoogleTest cases passing** across 17 test files, plus two compatibility CTest steps when
 Cargo is available. Deep [nlohmann/json](https://github.com/nlohmann/json) interoperability
 included.
 
@@ -26,7 +26,7 @@ int main() {
     auto doc = am::Document{};
 
     // Initializer lists — just like nlohmann/json
-    const auto items = doc.transact([](am::Transaction& tx) {
+    const auto items = *doc.transact([](am::Transaction& tx) {
         tx.put(am::root, "title", "Shopping List");
         tx.put(am::root, "config", {{"theme", "dark"}, {"lang", "en"}});
         return tx.put(am::root, "items", {"Milk", "Eggs", "Bread"});
@@ -82,12 +82,12 @@ doc.transact([](auto& tx) {
 
 ```cpp
 // Lambda return type is deduced — no external variable needed
-auto list_id = doc.transact([](Transaction& tx) {
+auto list_id = *doc.transact([](Transaction& tx) {
     return tx.put(root, "items", {"Milk", "Eggs", "Bread"});
 });
 
 // transact_with_patches returns {result, patches}
-auto [obj_id, patches] = doc.transact_with_patches([](Transaction& tx) {
+auto [obj_id, patches] = *doc.transact_with_patches([](Transaction& tx) {
     return tx.put(root, "data", Map{});
 });
 ```
@@ -255,7 +255,7 @@ a full working example.
 
 ### Quality and Performance
 
-- **677 GoogleTest cases** across 17 test files, plus two compatibility CTest steps with Cargo
+- **679 GoogleTest cases** across 17 test files, plus two compatibility CTest steps with Cargo
 - **Fuzz testing**: libFuzzer targets for `Document::load()`, LEB128, and change chunk parsing
 - **Static analysis**: clang-tidy CI with `bugprone-*`, `performance-*`, `clang-analyzer-*`
 - **Sanitizer CI**: Address Sanitizer + Undefined Behavior Sanitizer
@@ -353,7 +353,7 @@ automerge-cpp/
     encoding/                 #   LEB128, RLE, delta, boolean codecs
     storage/                  #   columnar binary format
     sync/                     #   bloom filter for sync protocol
-  tests/                      # 677 tests (Google Test)
+  tests/                      # 679 tests (Google Test)
   examples/                   # 7 example programs
   benchmarks/                 # performance benchmarks (Google Benchmark)
   docs/                       # documentation

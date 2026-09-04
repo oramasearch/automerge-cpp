@@ -406,9 +406,7 @@ static void bm_transact_with_patches(benchmark::State& state) {
     auto doc = make_doc();
     std::int64_t val = 0;
     for (auto _ : state) {
-        auto patches = doc.transact_with_patches([&](auto& tx) {
-            tx.put(root, "key", val++);
-        });
+        auto patches = *doc.transact_with_patches([&](auto& tx) { tx.put(root, "key", val++); });
         benchmark::DoNotOptimize(patches);
     }
     state.SetItemsProcessed(state.iterations());
@@ -422,7 +420,7 @@ static void bm_transact_with_patches_text(benchmark::State& state) {
 
     std::size_t pos = 0;
     for (auto _ : state) {
-        auto patches = doc.transact_with_patches([&](auto& tx) {
+        auto patches = *doc.transact_with_patches([&](auto& tx) {
             tx.splice_text(text_id, pos, 0, "hello");
             pos += 5;
         });

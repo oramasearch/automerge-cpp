@@ -153,14 +153,15 @@ void Document::set_actor_id(ActorId id) {
     state_->local_seq = clock == state_->clock.end() ? 0 : clock->second;
 }
 
-void Document::transact(const std::function<void(Transaction&)>& fn, CommitOptions options) {
+auto Document::transact(const std::function<void(Transaction&)>& fn, CommitOptions options)
+    -> std::expected<void, Error> {
     auto lock = std::unique_lock{mutex_};
     auto tx = Transaction{*state_};
     try {
         fn(tx);
-        tx.commit(std::move(options));
+        return tx.commit(std::move(options));
     } catch (...) {
-        tx.rollback();
+        static_cast<void>(tx.rollback());
         throw;
     }
 }
@@ -1783,7 +1784,8 @@ static auto ops_to_patches(const std::vector<Op>& ops) -> std::vector<Patch> {
 }
 
 auto Document::transact_with_patches(const std::function<void(Transaction&)>& fn,
-                                     CommitOptions options) -> std::vector<Patch> {
+                                     CommitOptions options)
+    -> std::expected<std::vector<Patch>, Error> {
     auto lock = std::unique_lock{mutex_};
     auto tx = Transaction{*state_};
     try {
@@ -1791,11 +1793,14 @@ auto Document::transact_with_patches(const std::function<void(Transaction&)>& fn
 
         // Capture ops before commit moves them
         auto ops = tx.pending_ops_;
-        tx.commit(std::move(options));
+        const auto committed = tx.commit(std::move(options));
+        if (!committed) {
+            return std::unexpected{committed.error()};
+        }
 
         return ops_to_patches(ops);
     } catch (...) {
-        tx.rollback();
+        static_cast<void>(tx.rollback());
         throw;
     }
 }

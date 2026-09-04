@@ -17,7 +17,7 @@ int main() {
     doc.set_actor_id(am::ActorId{actor1});
 
     // Create a text object — transact returns the ObjId directly
-    auto text_id = doc.transact([](am::Transaction& tx) {
+    auto text_id = *doc.transact([](am::Transaction& tx) {
         auto id = *tx.put(am::root, "content", am::ObjType::text);
         tx.splice_text(id, 0, 0, "Hello World");
         return id;
@@ -28,9 +28,8 @@ int main() {
     auto v1_heads = doc.get_heads();
 
     // transact_with_patches to see what changed
-    auto patches = doc.transact_with_patches([&](auto& tx) {
-        tx.splice_text(text_id, 5, 6, " C++23");
-    });
+    auto patches =
+        *doc.transact_with_patches([&](auto& tx) { tx.splice_text(text_id, 5, 6, " C++23"); });
 
     std::printf("After edit: \"%s\"\n", (*doc.text(text_id)).c_str());
     std::printf("Patches generated: %zu\n", patches.size());

@@ -22,7 +22,7 @@ int main() {
     auto doc = am::Document{};
 
     // -- Bare initializer list: creates a list automatically ------------------
-    auto list_id = doc.transact([](am::Transaction& tx) {
+    auto list_id = *doc.transact([](am::Transaction& tx) {
         tx.put(am::root, "title", "Shopping List");
         tx.put(am::root, "created_by", "Alice");
         return *tx.put(am::root, "items", {"Milk", "Eggs", "Bread"});
