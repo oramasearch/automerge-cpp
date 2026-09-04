@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <expected>
+#include <limits>
 #include <ranges>
 #include <set>
 #include <shared_mutex>
@@ -186,34 +188,134 @@ auto Document::fork() const -> Document {
     return forked;
 }
 
-void Document::merge(const Document& other) {
-    auto lock = std::unique_lock{mutex_};
-    // Find changes from other that we haven't seen
-    auto missing = std::vector<Change>{};
-    for (const auto& change : other.state_->change_history) {
-        auto it = state_->clock.find(change.actor);
-        if (it == state_->clock.end() || it->second < change.seq) {
-            missing.push_back(change);
-        }
+static auto validate_change(const Change& change) -> std::expected<void, Error> {
+    if (change.seq == 0) {
+        return std::unexpected{Error{ErrorKind::invalid_change,
+            "change sequence numbers start at one"}};
     }
-    // Sort by start_op for causal ordering
-    std::ranges::sort(missing, [](const Change& a, const Change& b) {
-        return a.start_op < b.start_op;
+    if (change.start_op == 0) {
+        return std::unexpected{Error{ErrorKind::invalid_change,
+            "change operation counters start at one"}};
+    }
+    if (change.operations.empty()) {
+        return std::unexpected{Error{ErrorKind::invalid_change,
+            "a change must contain at least one operation"}};
+    }
+    if (change.operations.size() >
+        std::numeric_limits<std::uint64_t>::max() - change.start_op + 1) {
+        return std::unexpected{Error{ErrorKind::invalid_change,
+            "change operation counters overflow"}};
+    }
+
+    auto next_counter = change.start_op;
+    const auto operations_match_change = std::ranges::all_of(change.operations,
+        [&](const Op& operation) {
+            const auto action_is_valid = static_cast<std::uint8_t>(operation.action) <=
+                static_cast<std::uint8_t>(OpType::mark);
+            const auto operation_matches = action_is_valid &&
+                operation.id.actor == change.actor &&
+                operation.id.counter == next_counter;
+            ++next_counter;
+            return operation_matches;
+        });
+    if (!operations_match_change) {
+        return std::unexpected{Error{ErrorKind::invalid_change,
+            "change operations do not match its actor or operation range"}};
+    }
+    return {};
+}
+
+static auto is_queued(const detail::DocState& state, const ChangeHash& hash) -> bool {
+    return std::ranges::any_of(state.pending_changes, [&](const Change& change) {
+        return detail::DocState::compute_change_hash(change) == hash;
     });
-    // Apply changes inline (avoid recursive lock from apply_changes)
-    for (const auto& change : missing) {
-        for (const auto& op : change.operations) {
-            state_->apply_op(op);
+}
+
+static auto queued_sequence_conflicts(const detail::DocState& state,
+                                      const Change& incoming,
+                                      const ChangeHash& incoming_hash) -> bool {
+    return std::ranges::any_of(state.pending_changes, [&](const Change& queued) {
+        return queued.actor == incoming.actor &&
+            queued.seq == incoming.seq &&
+            detail::DocState::compute_change_hash(queued) != incoming_hash;
+    });
+}
+
+static void apply_change(detail::DocState& state, const Change& change) {
+    std::ranges::for_each(change.operations, [&](const Op& operation) {
+        state.apply_op(operation);
+    });
+    state.clock[change.actor] = change.seq;
+    const auto hash = detail::DocState::compute_change_hash(change);
+    std::ranges::for_each(change.deps, [&](const ChangeHash& dependency) {
+        std::erase(state.heads, dependency);
+    });
+    state.heads.push_back(hash);
+    state.change_history.push_back(change);
+}
+
+static auto dependencies_are_available(const detail::DocState& state,
+                                       const Change& change) -> bool {
+    return std::ranges::all_of(change.deps, [&](const ChangeHash& dependency) {
+        return state.has_change_hash(dependency);
+    });
+}
+
+static void apply_ready_changes(detail::DocState& state) {
+    const auto pending_count = state.pending_changes.size();
+    std::ranges::for_each(std::views::iota(std::size_t{0}, pending_count),
+        [&](std::size_t) {
+            const auto ready = std::ranges::find_if(state.pending_changes,
+                [&](const Change& change) {
+                    return dependencies_are_available(state, change);
+                });
+            if (ready == state.pending_changes.end()) {
+                return;
+            }
+            auto change = std::move(*ready);
+            state.pending_changes.erase(ready);
+            apply_change(state, change);
+        });
+}
+
+static auto apply_changes_to_state(detail::DocState& state,
+                                   const std::vector<Change>& changes)
+    -> std::expected<void, Error> {
+    auto result = std::expected<void, Error>{};
+    std::ranges::for_each(changes, [&](const Change& change) {
+        if (!result) {
+            return;
         }
-        auto& seq = state_->clock[change.actor];
-        seq = std::max(seq, change.seq);
-        auto hash = detail::DocState::compute_change_hash(change);
-        for (const auto& dep : change.deps) {
-            std::erase(state_->heads, dep);
+        const auto hash = detail::DocState::compute_change_hash(change);
+        if (state.has_change_hash(hash) || is_queued(state, hash)) {
+            return;
         }
-        state_->heads.push_back(hash);
-        state_->change_history.push_back(change);
+        result = validate_change(change);
+        if (!result) {
+            return;
+        }
+        const auto clock_entry = state.clock.find(change.actor);
+        if (clock_entry != state.clock.end() && clock_entry->second >= change.seq) {
+            result = std::unexpected{Error{ErrorKind::invalid_change,
+                "change actor sequence contradicts document history"}};
+            return;
+        }
+        if (queued_sequence_conflicts(state, change, hash)) {
+            result = std::unexpected{Error{ErrorKind::invalid_change,
+                "change actor sequence contradicts a queued change"}};
+            return;
+        }
+        state.pending_changes.push_back(change);
+    });
+    if (!result) {
+        return std::unexpected{result.error()};
     }
+    apply_ready_changes(state);
+    return {};
+}
+
+auto Document::merge(const Document& other) -> std::expected<void, Error> {
+    return apply_changes(other.get_changes());
 }
 
 auto Document::get_changes() const -> std::vector<Change> {
@@ -221,34 +323,27 @@ auto Document::get_changes() const -> std::vector<Change> {
     return state_->change_history;
 }
 
-void Document::apply_changes(const std::vector<Change>& changes) {
+auto Document::apply_changes(const std::vector<Change>& changes)
+    -> std::expected<void, Error> {
     auto lock = std::unique_lock{mutex_};
-    for (const auto& change : changes) {
-        // Apply each operation
-        for (const auto& op : change.operations) {
-            state_->apply_op(op);
-        }
-
-        // Update clock
-        auto& seq = state_->clock[change.actor];
-        seq = std::max(seq, change.seq);
-
-        // Update heads
-        auto hash = detail::DocState::compute_change_hash(change);
-        // Remove deps from heads
-        for (const auto& dep : change.deps) {
-            std::erase(state_->heads, dep);
-        }
-        state_->heads.push_back(hash);
-
-        // Store change
-        state_->change_history.push_back(change);
+    auto candidate = *state_;
+    auto result = apply_changes_to_state(candidate, changes);
+    if (!result) {
+        return std::unexpected{result.error()};
     }
+    *state_ = std::move(candidate);
+    return {};
 }
 
 auto Document::get_heads() const -> std::vector<ChangeHash> {
     auto guard = read_guard();
     return state_->heads;
+}
+
+auto Document::get_missing_deps(const std::vector<ChangeHash>& heads) const
+    -> std::vector<ChangeHash> {
+    auto guard = read_guard();
+    return state_->get_missing_deps(heads);
 }
 
 // -- Phase 4: Binary Serialization --------------------------------------------
@@ -837,32 +932,22 @@ auto Document::generate_sync_message(SyncState& sync_state) const
     };
 }
 
-void Document::receive_sync_message(SyncState& sync_state,
-                                     const SyncMessage& message) {
+auto Document::receive_sync_message(SyncState& sync_state,
+                                    const SyncMessage& message)
+    -> std::expected<void, Error> {
+    auto result = apply_changes(message.changes);
+    if (!result) {
+        return std::unexpected{result.error()};
+    }
+
     auto lock = std::unique_lock{mutex_};
 
     // Clear in-flight flag (ack)
     sync_state.in_flight_ = false;
 
-    // Apply changes from message inline (avoid recursive lock)
     if (!message.changes.empty()) {
-        for (const auto& change : message.changes) {
-            for (const auto& op : change.operations) {
-                state_->apply_op(op);
-            }
-            auto& seq = state_->clock[change.actor];
-            seq = std::max(seq, change.seq);
-            auto hash = detail::DocState::compute_change_hash(change);
-            for (const auto& dep : change.deps) {
-                std::erase(state_->heads, dep);
-            }
-            state_->heads.push_back(hash);
-            state_->change_history.push_back(change);
-        }
-
         // Advance shared_heads: keep new heads that appeared
-        auto after_heads = state_->heads;
-        sync_state.shared_heads_ = after_heads;
+        sync_state.shared_heads_ = state_->heads;
     }
 
     // Trim sent_hashes: remove ancestors of their acknowledged heads
@@ -923,6 +1008,7 @@ void Document::receive_sync_message(SyncState& sync_state,
     sync_state.their_have_ = message.have;
     sync_state.their_heads_ = message.heads;
     sync_state.their_need_ = message.need;
+    return {};
 }
 
 // -- Phase 6: Patches ---------------------------------------------------------

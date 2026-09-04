@@ -62,6 +62,7 @@ struct DocState {
 
     // Change tracking (Phase 3)
     std::vector<Change> change_history;
+    std::vector<Change> pending_changes;
     std::vector<ChangeHash> heads;
     std::map<ActorId, std::uint64_t> clock;  // actor -> max seq seen
     std::uint64_t local_seq = 0;
@@ -718,13 +719,22 @@ struct DocState {
     auto get_missing_deps(const std::vector<ChangeHash>& their_heads) const
         -> std::vector<ChangeHash> {
         ensure_hash_index();
+        auto queued_hashes = std::unordered_set<ChangeHash>{};
+        std::ranges::for_each(pending_changes, [&](const Change& change) {
+            queued_hashes.insert(compute_change_hash(change));
+        });
         auto result = std::vector<ChangeHash>{};
-        for (const auto& h : their_heads) {
-            if (!cached_hash_index_.contains(h) &&
-                std::ranges::find(result, h) == result.end()) {
-                result.push_back(h);
+        auto add_if_missing = [&](const ChangeHash& hash) {
+            if (!cached_hash_index_.contains(hash) &&
+                !queued_hashes.contains(hash) &&
+                std::ranges::find(result, hash) == result.end()) {
+                result.push_back(hash);
             }
-        }
+        };
+        std::ranges::for_each(their_heads, add_if_missing);
+        std::ranges::for_each(pending_changes, [&](const Change& change) {
+            std::ranges::for_each(change.deps, add_if_missing);
+        });
         return result;
     }
 
