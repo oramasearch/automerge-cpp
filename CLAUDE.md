@@ -81,6 +81,7 @@ automerge-cpp/
 │   └── json_interop_demo.cpp
 ├── benchmarks/                             # BENCHMARKS (Google Benchmark)
 │   ├── CMakeLists.txt
+│   ├── history_compaction_measure.cpp      #   shallow/full load and historical-read measurements
 │   └── placeholder_benchmark.cpp
 ├── fuzz/                                   # FUZZ TESTING (libFuzzer)
 │   ├── CMakeLists.txt                      #   libFuzzer build config

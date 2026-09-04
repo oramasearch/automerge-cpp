@@ -54,8 +54,8 @@ also a cache floor. A shallow document therefore cannot replay below its checkpo
 or nearby reads above it are bounded by their distance from the cached heads rather than the entire
 document history.
 
-For a 10,000-change document, a historical read near the tip averaged 19,989.7 microseconds without
-a cached point and 0.8376 microseconds from the adjacent cached point. Each result is the median of
+For a 10,000-change document, a historical read near the tip averaged 19,814.1 microseconds without
+a cached point and 0.9687 microseconds from the adjacent cached point. Each result is the median of
 three release-build runs; each run averaged 20 fresh document copies.
 
 ## Measurements
@@ -66,9 +66,25 @@ on an Apple M3 Max with 64 GiB of memory and Apple Clang 15.
 
 | Changes | Compact bytes | Before: full load | Before: full heap | After: shallow load | After: shallow heap |
 |---:|---:|---:|---:|---:|---:|
-| 1,000 | 1,692 | 4.423 ms | 0.552 MiB | 0.680 ms | 0.148 MiB |
-| 10,000 | 19,017 | 78.363 ms | 5.684 MiB | 6.651 ms | 1.319 MiB |
-| 100,000 | 207,417 | 4,026.010 ms | 58.461 MiB | 73.930 ms | 1.536 MiB |
+| 1,000 | 1,692 | 4.492 ms | 0.800 MiB | 0.741 ms | 0.148 MiB |
+| 10,000 | 19,017 | 77.429 ms | 7.571 MiB | 6.666 ms | 1.320 MiB |
+| 100,000 | 207,417 | 4,041.650 ms | 79.822 MiB | 70.500 ms | 1.536 MiB |
+
+Reproduce the files and measurements with:
+
+```bash
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release \
+    -DAUTOMERGE_CPP_BUILD_BENCHMARKS=ON
+cmake --build build-release --target history_compaction_measure
+./build-release/benchmarks/history_compaction_measure generate 1000 \
+    build-release/1000.am build-release/1000.compact.am
+./build-release/benchmarks/history_compaction_measure load full build-release/1000.compact.am
+./build-release/benchmarks/history_compaction_measure load shallow build-release/1000.compact.am
+./build-release/benchmarks/history_compaction_measure get-at 10000
+```
+
+Repeat `generate` and both `load` commands with 10,000 and 100,000 changes. Run each load in a
+fresh process and take the median of three results.
 
 ## Liquid checkpoint procedure
 
@@ -89,10 +105,12 @@ application has established that no supported peer or historical query can refer
 The pinned automerge-rs sources define compact saving in
 [`autocommit.rs`](../upstream/automerge/rust/automerge/src/autocommit.rs) and document-chunk loading
 in [`storage/load.rs`](../upstream/automerge/rust/automerge/src/storage/load.rs). The compatibility
-fixtures are generated with the same pinned dependency under `tests/fixtures/generator/`.
+fixture generator uses the same pinned dependency under `tests/fixtures/generator/`.
 
 ## Verification
 
 `document_test.cpp` covers shallow round trips, local transactions, compact re-saving, bidirectional
 merge, bidirectional sync, queued pre-checkpoint changes, and cached historical reads.
 `change_hash_fixture_test.cpp` compares compact output with automerge-rs document fixtures.
+`history_compaction_measure.cpp` generates the measurement documents and reports load, heap, and
+historical-read results.
