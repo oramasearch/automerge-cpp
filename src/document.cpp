@@ -479,11 +479,10 @@ static void remove_queued_change(detail::DocState& state, const ChangeHash& hash
 }
 
 static void apply_ready_changes(detail::DocState& state) {
-    auto ready_hashes = std::vector<ChangeHash>{};
-    ready_hashes.reserve(state.pending_changes.size());
+    auto ready_hashes = std::set<ChangeHash>{};
     std::ranges::for_each(state.pending_changes, [&](const auto& entry) {
         if (dependencies_are_available(state, entry.second)) {
-            ready_hashes.push_back(entry.first);
+            ready_hashes.insert(entry.first);
         }
     });
     const auto pending_count = state.pending_changes.size();
@@ -491,8 +490,8 @@ static void apply_ready_changes(detail::DocState& state) {
         if (ready_hashes.empty()) {
             return;
         }
-        const auto hash = ready_hashes.back();
-        ready_hashes.pop_back();
+        const auto hash = *ready_hashes.rbegin();
+        ready_hashes.erase(hash);
         const auto ready = state.pending_changes.find(hash);
         if (ready == state.pending_changes.end() ||
             !dependencies_are_available(state, ready->second)) {
@@ -515,7 +514,7 @@ static void apply_ready_changes(detail::DocState& state) {
             const auto pending = state.pending_changes.find(dependent);
             if (pending != state.pending_changes.end() &&
                 dependencies_are_available(state, pending->second)) {
-                ready_hashes.push_back(dependent);
+                ready_hashes.insert(dependent);
             }
         });
     });
