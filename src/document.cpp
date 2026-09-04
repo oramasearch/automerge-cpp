@@ -26,6 +26,7 @@
 #include <unordered_set>
 
 #if defined(_WIN32)
+#define NOMINMAX
 #include <windows.h>
 
 #include <bcrypt.h>
