@@ -1637,7 +1637,11 @@ TEST(Document, shallow_document_queues_change_that_depends_on_pruned_history) {
     const auto result = shallow->apply_changes(*old_peer.get_changes_since({pruned_head}));
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_FALSE((*shallow->get_at(root, "first", {pruned_head})).has_value());
+    const auto before_failed_read = shallow->save_compact();
+    const auto historical = shallow->get_at(root, "first", {pruned_head});
+    ASSERT_FALSE(historical);
+    EXPECT_EQ(historical.error().kind, ErrorKind::invalid_change);
+    EXPECT_EQ(shallow->save_compact(), before_failed_read);
     EXPECT_FALSE((*shallow->get(root, "old-branch")).has_value());
     EXPECT_EQ(shallow->get_missing_deps({}), std::vector<ChangeHash>{pruned_head});
 }

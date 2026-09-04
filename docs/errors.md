@@ -62,7 +62,7 @@ absence after the operation's inputs have been validated, such as a missing map 
 | `Document::values`, `length` | Unknown object | `std::expected<std::vector<Value>, Error>` or `std::expected<std::size_t, Error>` |
 | `Document::text` | Unknown object; non-text object | `std::expected<std::string, Error>` |
 | `Document::get_changes_since` | A requested head is not present in the document | `std::expected<std::vector<Change>, Error>` |
-| `Document::get_at`, `keys_at`, `values_at`, `length_at`, `text_at` | Unknown historical head; then the same object, type, key, and index validation as the current-state read | Corresponding `std::expected<T, Error>` |
+| `Document::get_at`, `keys_at`, `values_at`, `length_at`, `text_at` | Unknown or pruned historical head; then the same object, type, key, and index validation as the current-state read | Corresponding `std::expected<T, Error>` |
 | `Document::cursor` | Unknown or non-sequence object; index not less than length | `std::expected<Cursor, Error>` |
 | `Document::resolve_cursor` | Unknown or non-sequence object; cursor belongs to another object | `std::expected<std::optional<std::size_t>, Error>` |
 | `Document::marks`, `marks_at` | Unknown or non-sequence object; `marks_at` also rejects an unknown head | `std::expected<std::vector<Mark>, Error>` |
