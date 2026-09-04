@@ -6218,14 +6218,30 @@ TEST(Document, get_path_into_list) {
     EXPECT_EQ(*get_scalar<std::string>(*val), "todo");
 }
 
-TEST(Document, get_path_missing_intermediate_returns_nullopt) {
+TEST(Document, get_path_scalar_intermediate_returns_error) {
     auto doc = make_doc(1);
     doc.transact([](auto& tx) {
         tx.put(root, "x", std::int64_t{1});
     });
-    // "x" is a scalar, not an object - can't traverse further
-    auto val = *doc.get_path("x", "y");
-    EXPECT_FALSE(val.has_value());
+    const auto before = doc.save();
+
+    const auto result = doc.get_path("x", "y");
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_value_type);
+    EXPECT_EQ(doc.save(), before);
+}
+
+TEST(Document, get_path_null_key_returns_error) {
+    auto doc = make_doc(1);
+    const auto before = doc.save();
+    const char* key = nullptr;
+
+    const auto result = doc.get_path("x", key);
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_key);
+    EXPECT_EQ(doc.save(), before);
 }
 
 TEST(Document, get_path_missing_key_returns_nullopt) {

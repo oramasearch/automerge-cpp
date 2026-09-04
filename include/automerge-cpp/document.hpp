@@ -603,14 +603,24 @@ template <typename... Props>
 auto Document::get_path(Props&&... props) const -> std::expected<std::optional<Value>, Error> {
     auto path = std::vector<Prop>{};
     path.reserve(sizeof...(Props));
+    auto has_null_key = false;
     auto to_prop = overload{
         [](std::string_view s) -> Prop { return std::string{s}; },
-        [](const char* s) -> Prop { return std::string{s}; },
+        [&has_null_key](const char* s) -> Prop {
+            if (s == nullptr) {
+                has_null_key = true;
+                return std::string{};
+            }
+            return std::string{s};
+        },
         [](const std::string& s) -> Prop { return s; },
         [](std::size_t i) -> Prop { return i; },
         [](int i) -> Prop { return static_cast<std::size_t>(i); },
     };
     (path.push_back(to_prop(std::forward<Props>(props))), ...);
+    if (has_null_key) {
+        return std::unexpected{Error{ErrorKind::invalid_key, "Path keys must not be null"}};
+    }
     return get_path_impl(path);
 }
 

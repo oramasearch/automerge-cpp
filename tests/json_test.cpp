@@ -51,14 +51,20 @@ TEST(GetObjId, scalar_value_returns_nullopt) {
     EXPECT_FALSE((*doc.get_obj_id(am::root, "x")).has_value());
 }
 
-TEST(GetObjId, out_of_bounds_index_returns_nullopt) {
+TEST(GetObjId, out_of_bounds_index_returns_error) {
     auto doc = am::Document{};
     doc.transact([](am::Transaction& tx) {
         tx.put_object(am::root, "list", am::ObjType::list);
     });
     auto list = *doc.get_obj_id(am::root, "list");
     ASSERT_TRUE(list.has_value());
-    EXPECT_FALSE((*doc.get_obj_id(*list, std::size_t{0})).has_value());
+    const auto before = doc.save();
+
+    const auto result = doc.get_obj_id(*list, std::size_t{0});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, am::ErrorKind::index_out_of_bounds);
+    EXPECT_EQ(doc.save(), before);
 }
 
 // =============================================================================

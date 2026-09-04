@@ -55,7 +55,7 @@ absence after the operation's inputs have been validated, such as a missing map 
 | `Transaction::text` | Inactive transaction; unknown object; non-text object | `std::expected<std::string, Error>` |
 | `Document::get`, `get_all`, `operator[]` | Unknown object; non-map/list object; invalid UTF-8 key; list index not less than length | `std::expected<std::optional<Value>, Error>` or `std::expected<std::vector<Value>, Error>` |
 | `Document::get<T>` | Same validation as `get`; missing map key or scalar type mismatch is normal absence | `std::expected<std::optional<T>, Error>` |
-| `Document::get_path` | Wrong object or scalar type while traversing; invalid UTF-8 key; list index not less than length | `std::expected<std::optional<Value>, Error>` |
+| `Document::get_path` | Wrong object or scalar type while traversing; null or invalid UTF-8 key; list index not less than length | `std::expected<std::optional<Value>, Error>` |
 | `Document::get_obj_id` | Same object, key, and index validation as `get`; a missing or scalar child is normal absence | `std::expected<std::optional<ObjId>, Error>` |
 | `Document::object_type` | Unknown object | `std::expected<ObjType, Error>` |
 | `Document::keys` | Unknown object; non-map object | `std::expected<std::vector<std::string>, Error>` |

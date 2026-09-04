@@ -53,7 +53,7 @@ automerge-cpp/
 │   │       └── change_op_columns.hpp       #       op column encoding/decoding (14 parallel columns)
 │   └── sync/                               #   Sync protocol internals
 │       └── bloom_filter.hpp                #     bloom filter (10 bits/entry, 7 probes)
-├── tests/                                  # TESTS (Google Test) — 689 tests
+├── tests/                                  # TESTS (Google Test) — 690 tests
 │   ├── CMakeLists.txt
 │   ├── error_test.cpp
 │   ├── expected_errors_test.cpp
@@ -235,7 +235,7 @@ See [docs/plans/architecture.md](docs/plans/architecture.md) for the full design
 
 ## Testing
 
-689 tests across 17 test files. Uses Google Test (fetched via CMake FetchContent), plus two
+690 tests across 17 test files. Uses Google Test (fetched via CMake FetchContent), plus two
 compatibility CTest steps when Cargo is available.
 
 | Test File | Count | Covers |

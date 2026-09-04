@@ -1264,7 +1264,7 @@ when they return an error.
 ```cpp
 auto child = doc.get_obj_id(am::root, "config");       // map key
 auto elem  = doc.get_obj_id(list_id, std::size_t{0});  // list index
-// Returns nullopt if key/index doesn't exist or value isn't an object
+// Missing map keys and scalar values return nullopt; invalid indices return an Error
 ```
 
 ### JSON Pointer (RFC 6901)
