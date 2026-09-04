@@ -140,7 +140,8 @@ inline auto document_list_ranks(const std::vector<Change>& changes)
     auto elements = std::unordered_map<ObjId, std::vector<DocumentListElement>>{};
     std::ranges::for_each(changes, [&](const Change& change) {
         std::ranges::for_each(change.operations, [&](const Op& operation) {
-            if (operation.action != OpType::insert && operation.action != OpType::splice_text) {
+            if (operation.action != OpType::insert && operation.action != OpType::splice_text &&
+                operation.action != OpType::mark) {
                 return;
             }
             auto& object = elements[operation.obj];
@@ -189,7 +190,8 @@ inline auto document_list_ranks(const std::vector<Change>& changes)
 }
 
 inline auto document_register(const Op& operation) -> std::optional<OpId> {
-    if (operation.action == OpType::insert || operation.action == OpType::splice_text) {
+    if (operation.action == OpType::insert || operation.action == OpType::splice_text ||
+        operation.action == OpType::mark) {
         return operation.id;
     }
     return operation.pred.empty() ? std::nullopt : std::optional{operation.pred.front()};
@@ -257,9 +259,13 @@ inline auto encode_document_operation_columns(const std::vector<DocumentWriteRow
     auto successor_count = encoding::RleEncoder<std::uint64_t>{};
     auto successor_actor = encoding::RleEncoder<std::uint64_t>{};
     auto successor_counter = encoding::DeltaEncoder{};
+    auto expand = encoding::BooleanEncoder{};
+    auto mark_name = encoding::RleEncoder<std::string>{};
     auto has_non_root_object = false;
     auto has_map_key = false;
     auto has_list_key = false;
+    auto has_expand = false;
+    auto has_mark_name = false;
 
     std::ranges::for_each(rows, [&](const DocumentWriteRow& row) {
         const auto& operation = row.operation;
@@ -275,9 +281,10 @@ inline auto encode_document_operation_columns(const std::vector<DocumentWriteRow
             object_counter.append(object.counter);
         }
 
-        const auto is_insert =
-            operation.action == OpType::insert || operation.action == OpType::splice_text;
-        if (const auto* map_key = std::get_if<std::string>(&operation.key)) {
+        const auto is_mark = operation.action == OpType::mark;
+        const auto is_insert = operation.action == OpType::insert ||
+                               operation.action == OpType::splice_text || is_mark;
+        if (const auto* map_key = std::get_if<std::string>(&operation.key); map_key && !is_mark) {
             has_map_key = true;
             key_actor.append_null();
             key_counter.append_null();
@@ -285,9 +292,7 @@ inline auto encode_document_operation_columns(const std::vector<DocumentWriteRow
         } else {
             has_list_key = true;
             const auto register_id =
-                operation.action == OpType::insert || operation.action == OpType::splice_text
-                    ? operation.insert_after
-                    : document_register(operation);
+                is_insert ? operation.insert_after : document_register(operation);
             if (register_id) {
                 key_actor.append(document_actor_index(actors, register_id->actor));
                 key_counter.append(static_cast<std::int64_t>(register_id->counter));
@@ -322,6 +327,19 @@ inline auto encode_document_operation_columns(const std::vector<DocumentWriteRow
             successor_actor.append(document_actor_index(actors, successor.actor));
             successor_counter.append(static_cast<std::int64_t>(successor.counter));
         });
+        if (is_mark) {
+            expand.append(operation.expand);
+            has_expand = true;
+            if (operation.mark_name) {
+                mark_name.append(*operation.mark_name);
+                has_mark_name = true;
+            } else {
+                mark_name.append_null();
+            }
+        } else {
+            expand.append(false);
+            mark_name.append_null();
+        }
     });
 
     id_actor.finish();
@@ -336,6 +354,8 @@ inline auto encode_document_operation_columns(const std::vector<DocumentWriteRow
     successor_count.finish();
     successor_actor.finish();
     successor_counter.finish();
+    expand.finish();
+    mark_name.finish();
 
     auto value_metadata = encoding::RleEncoder<std::uint64_t>{};
     auto metadata_position = std::size_t{0};
@@ -382,6 +402,12 @@ inline auto encode_document_operation_columns(const std::vector<DocumentWriteRow
     add(document_op_columns::successor_count, successor_count.take());
     add(document_op_columns::successor_actor, successor_actor.take());
     add(document_op_columns::successor_counter, successor_counter.take());
+    if (has_expand) {
+        add(document_op_columns::expand, expand.take());
+    }
+    if (has_mark_name) {
+        add(document_op_columns::mark_name, mark_name.take());
+    }
     std::ranges::sort(columns, {}, [](const RawColumn& column) { return column.spec.to_u32(); });
     return columns;
 }
