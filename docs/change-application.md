@@ -31,8 +31,18 @@ Before modifying the document, `apply_changes()` validates each new change:
   cannot identify a different change.
 
 Invalid input returns `ErrorKind::invalid_change` with a reason. The entire
-call is atomic: neither the visible state, heads, history, nor pending queue is
-updated on validation failure.
+call is atomic for validation failures: the document first validates every
+supplied change against applied history, the pending queue, and the other
+supplied changes. Only after validation succeeds are changes added to the
+pending queue and eligible changes applied. This avoids copying the document
+for each incoming change.
+
+The pending queue is indexed by `ChangeHash`, actor sequence number, and
+dependency hash. These indexes make duplicate and sequence-conflict checks
+independent of queue length, and allow a newly applied dependency to wake only
+the changes waiting on it. Applying eligible operations has no domain failure
+after validation; allocation exhaustion may still propagate `std::bad_alloc`,
+as permitted by the library's error-handling policy.
 
 ## Verification
 
@@ -44,4 +54,8 @@ cmake --build build && ctest --test-dir build --output-on-failure
 
 `tests/document_test.cpp` covers duplicate application, two- and three-change
 out-of-order delivery, merge and sync re-delivery, missing-dependency reporting,
-and rejection of malformed changes and conflicting actor sequences.
+and rejection of malformed changes and conflicting actor sequences, including
+conflicts between changes supplied in one call.
+It also compares 5,000 single-change applications against one batch after
+loading 50,000 map entries, asserting that drip application remains within a
+four-times bound of the batch measurement.

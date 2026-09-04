@@ -248,8 +248,7 @@ public:
     /// Get hashes needed to resolve queued changes and the supplied heads.
     ///
     /// Hashes for changes already queued locally are omitted.
-    auto get_missing_deps(const std::vector<ChangeHash>& heads) const
-        -> std::vector<ChangeHash>;
+    auto get_missing_deps(const std::vector<ChangeHash>& heads) const -> std::vector<ChangeHash>;
 
     // -- Binary Serialization -------------------------------------------------
 

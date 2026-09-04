@@ -17,6 +17,7 @@
 #include <cstring>
 #include <expected>
 #include <limits>
+#include <new>
 #include <ranges>
 #include <set>
 #include <shared_mutex>
@@ -190,128 +191,223 @@ auto Document::fork() const -> Document {
 
 static auto validate_change(const Change& change) -> std::expected<void, Error> {
     if (change.seq == 0) {
-        return std::unexpected{Error{ErrorKind::invalid_change,
-            "change sequence numbers start at one"}};
+        return std::unexpected{
+            Error{ErrorKind::invalid_change, "change sequence numbers start at one"}};
     }
     if (change.start_op == 0) {
-        return std::unexpected{Error{ErrorKind::invalid_change,
-            "change operation counters start at one"}};
+        return std::unexpected{
+            Error{ErrorKind::invalid_change, "change operation counters start at one"}};
     }
     if (change.operations.empty()) {
-        return std::unexpected{Error{ErrorKind::invalid_change,
-            "a change must contain at least one operation"}};
+        return std::unexpected{
+            Error{ErrorKind::invalid_change, "a change must contain at least one operation"}};
     }
     if (change.operations.size() >
         std::numeric_limits<std::uint64_t>::max() - change.start_op + 1) {
-        return std::unexpected{Error{ErrorKind::invalid_change,
-            "change operation counters overflow"}};
+        return std::unexpected{
+            Error{ErrorKind::invalid_change, "change operation counters overflow"}};
     }
 
     auto next_counter = change.start_op;
-    const auto operations_match_change = std::ranges::all_of(change.operations,
-        [&](const Op& operation) {
+    const auto operations_match_change =
+        std::ranges::all_of(change.operations, [&](const Op& operation) {
             const auto action_is_valid = static_cast<std::uint8_t>(operation.action) <=
-                static_cast<std::uint8_t>(OpType::mark);
-            const auto operation_matches = action_is_valid &&
-                operation.id.actor == change.actor &&
-                operation.id.counter == next_counter;
+                                         static_cast<std::uint8_t>(OpType::mark);
+            const auto operation_matches = action_is_valid && operation.id.actor == change.actor &&
+                                           operation.id.counter == next_counter;
             ++next_counter;
             return operation_matches;
         });
     if (!operations_match_change) {
-        return std::unexpected{Error{ErrorKind::invalid_change,
-            "change operations do not match its actor or operation range"}};
+        return std::unexpected{
+            Error{ErrorKind::invalid_change,
+                  "change operations do not match its actor or operation range"}};
     }
     return {};
-}
-
-static auto is_queued(const detail::DocState& state, const ChangeHash& hash) -> bool {
-    return std::ranges::any_of(state.pending_changes, [&](const Change& change) {
-        return detail::DocState::compute_change_hash(change) == hash;
-    });
 }
 
 static auto queued_sequence_conflicts(const detail::DocState& state,
                                       const Change& incoming,
                                       const ChangeHash& incoming_hash) -> bool {
-    return std::ranges::any_of(state.pending_changes, [&](const Change& queued) {
-        return queued.actor == incoming.actor &&
-            queued.seq == incoming.seq &&
-            detail::DocState::compute_change_hash(queued) != incoming_hash;
-    });
+    const auto actor = state.pending_sequences.find(incoming.actor);
+    if (actor == state.pending_sequences.end()) {
+        return false;
+    }
+    const auto sequence = actor->second.find(incoming.seq);
+    return sequence != actor->second.end() && sequence->second != incoming_hash;
 }
 
 static void apply_change(detail::DocState& state, const Change& change) {
-    std::ranges::for_each(change.operations, [&](const Op& operation) {
-        state.apply_op(operation);
-    });
+    std::ranges::for_each(change.operations,
+                          [&](const Op& operation) { state.apply_op(operation); });
     state.clock[change.actor] = change.seq;
     const auto hash = detail::DocState::compute_change_hash(change);
-    std::ranges::for_each(change.deps, [&](const ChangeHash& dependency) {
-        std::erase(state.heads, dependency);
-    });
+    std::ranges::for_each(
+        change.deps, [&](const ChangeHash& dependency) { std::erase(state.heads, dependency); });
     state.heads.push_back(hash);
     state.change_history.push_back(change);
 }
 
-static auto dependencies_are_available(const detail::DocState& state,
-                                       const Change& change) -> bool {
+static auto dependencies_are_available(const detail::DocState& state, const Change& change)
+    -> bool {
     return std::ranges::all_of(change.deps, [&](const ChangeHash& dependency) {
         return state.has_change_hash(dependency);
     });
 }
 
-static void apply_ready_changes(detail::DocState& state) {
-    const auto pending_count = state.pending_changes.size();
-    std::ranges::for_each(std::views::iota(std::size_t{0}, pending_count),
-        [&](std::size_t) {
-            const auto ready = std::ranges::find_if(state.pending_changes,
-                [&](const Change& change) {
-                    return dependencies_are_available(state, change);
-                });
-            if (ready == state.pending_changes.end()) {
-                return;
-            }
-            auto change = std::move(*ready);
-            state.pending_changes.erase(ready);
-            apply_change(state, change);
-        });
+static void remove_queued_change(detail::DocState& state, const ChangeHash& hash) {
+    const auto queued = state.pending_changes.find(hash);
+    if (queued == state.pending_changes.end()) {
+        return;
+    }
+    const auto& change = queued->second;
+    const auto actor = state.pending_sequences.find(change.actor);
+    if (actor != state.pending_sequences.end()) {
+        actor->second.erase(change.seq);
+        if (actor->second.empty()) {
+            state.pending_sequences.erase(actor);
+        }
+    }
+    std::ranges::for_each(change.deps, [&](const ChangeHash& dependency) {
+        const auto dependents = state.pending_dependents.find(dependency);
+        if (dependents == state.pending_dependents.end()) {
+            return;
+        }
+        dependents->second.erase(hash);
+        if (dependents->second.empty()) {
+            state.pending_dependents.erase(dependents);
+        }
+    });
+    state.pending_changes.erase(queued);
 }
 
-static auto apply_changes_to_state(detail::DocState& state,
-                                   const std::vector<Change>& changes)
-    -> std::expected<void, Error> {
-    auto result = std::expected<void, Error>{};
+static void apply_ready_changes(detail::DocState& state) {
+    auto ready_hashes = std::vector<ChangeHash>{};
+    ready_hashes.reserve(state.pending_changes.size());
+    std::ranges::for_each(state.pending_changes, [&](const auto& entry) {
+        if (dependencies_are_available(state, entry.second)) {
+            ready_hashes.push_back(entry.first);
+        }
+    });
+    const auto pending_count = state.pending_changes.size();
+    std::ranges::for_each(std::views::iota(std::size_t{0}, pending_count), [&](std::size_t) {
+        if (ready_hashes.empty()) {
+            return;
+        }
+        const auto hash = ready_hashes.back();
+        ready_hashes.pop_back();
+        const auto ready = state.pending_changes.find(hash);
+        if (ready == state.pending_changes.end() ||
+            !dependencies_are_available(state, ready->second)) {
+            return;
+        }
+        auto dependents = std::vector<ChangeHash>{};
+        const auto dependents_entry = state.pending_dependents.find(hash);
+        if (dependents_entry != state.pending_dependents.end()) {
+            dependents.reserve(dependents_entry->second.size());
+            std::ranges::copy(dependents_entry->second, std::back_inserter(dependents));
+            state.pending_dependents.erase(dependents_entry);
+        }
+        auto change = std::move(ready->second);
+        remove_queued_change(state, hash);
+        apply_change(state, change);
+        std::ranges::for_each(dependents, [&](const ChangeHash& dependent) {
+            const auto pending = state.pending_changes.find(dependent);
+            if (pending != state.pending_changes.end() &&
+                dependencies_are_available(state, pending->second)) {
+                ready_hashes.push_back(dependent);
+            }
+        });
+    });
+}
+
+struct ChangeAdmission {
+    ChangeHash hash;
+    const Change* change;
+};
+
+static auto validate_changes(const detail::DocState& state, const std::vector<Change>& changes)
+    -> std::expected<std::vector<ChangeAdmission>, Error> {
+    auto admissions = std::vector<ChangeAdmission>{};
+    admissions.reserve(changes.size());
+    auto supplied_hashes = std::unordered_set<ChangeHash>{};
+    supplied_hashes.reserve(changes.size());
+    auto supplied_sequences =
+        std::unordered_map<ActorId, std::unordered_map<std::uint64_t, ChangeHash>>{};
+    auto error = std::optional<Error>{};
     std::ranges::for_each(changes, [&](const Change& change) {
-        if (!result) {
+        if (error) {
             return;
         }
         const auto hash = detail::DocState::compute_change_hash(change);
-        if (state.has_change_hash(hash) || is_queued(state, hash)) {
+        if (state.has_change_hash(hash) || state.pending_changes.contains(hash)) {
             return;
         }
-        result = validate_change(change);
-        if (!result) {
+        if (!supplied_hashes.insert(hash).second) {
+            return;
+        }
+        const auto validation = validate_change(change);
+        if (!validation) {
+            error = validation.error();
             return;
         }
         const auto clock_entry = state.clock.find(change.actor);
         if (clock_entry != state.clock.end() && clock_entry->second >= change.seq) {
-            result = std::unexpected{Error{ErrorKind::invalid_change,
-                "change actor sequence contradicts document history"}};
+            error = Error{ErrorKind::invalid_change,
+                          "change actor sequence contradicts document history"};
             return;
         }
         if (queued_sequence_conflicts(state, change, hash)) {
-            result = std::unexpected{Error{ErrorKind::invalid_change,
-                "change actor sequence contradicts a queued change"}};
+            error = Error{ErrorKind::invalid_change,
+                          "change actor sequence contradicts a queued change"};
             return;
         }
-        state.pending_changes.push_back(change);
+        auto& sequences = supplied_sequences[change.actor];
+        const auto [sequence, inserted] = sequences.emplace(change.seq, hash);
+        if (!inserted && sequence->second != hash) {
+            error = Error{ErrorKind::invalid_change,
+                          "change actor sequence contradicts another supplied change"};
+            return;
+        }
+        admissions.push_back(ChangeAdmission{.hash = hash, .change = &change});
     });
-    if (!result) {
-        return std::unexpected{result.error()};
+    if (error) {
+        return std::unexpected{std::move(*error)};
+    }
+    return admissions;
+}
+
+static void queue_change(detail::DocState& state, const ChangeAdmission& admission) {
+    const auto inserted = state.pending_changes.emplace(admission.hash, *admission.change).second;
+    if (!inserted) {
+        return;
+    }
+    try {
+        auto& sequences = state.pending_sequences[admission.change->actor];
+        sequences.emplace(admission.change->seq, admission.hash);
+        std::ranges::for_each(admission.change->deps, [&](const ChangeHash& dependency) {
+            state.pending_dependents[dependency].insert(admission.hash);
+        });
+    } catch (const std::bad_alloc&) {
+        remove_queued_change(state, admission.hash);
+        throw;
+    }
+}
+
+static void admit_changes(detail::DocState& state, const std::vector<ChangeAdmission>& admissions) {
+    auto admitted_hashes = std::vector<ChangeHash>{};
+    admitted_hashes.reserve(admissions.size());
+    try {
+        std::ranges::for_each(admissions, [&](const ChangeAdmission& admission) {
+            admitted_hashes.push_back(admission.hash);
+            queue_change(state, admission);
+        });
+    } catch (const std::bad_alloc&) {
+        std::ranges::for_each(admitted_hashes,
+                              [&](const ChangeHash& hash) { remove_queued_change(state, hash); });
+        throw;
     }
     apply_ready_changes(state);
-    return {};
 }
 
 auto Document::merge(const Document& other) -> std::expected<void, Error> {
@@ -323,15 +419,13 @@ auto Document::get_changes() const -> std::vector<Change> {
     return state_->change_history;
 }
 
-auto Document::apply_changes(const std::vector<Change>& changes)
-    -> std::expected<void, Error> {
+auto Document::apply_changes(const std::vector<Change>& changes) -> std::expected<void, Error> {
     auto lock = std::unique_lock{mutex_};
-    auto candidate = *state_;
-    auto result = apply_changes_to_state(candidate, changes);
-    if (!result) {
-        return std::unexpected{result.error()};
+    const auto admissions = validate_changes(*state_, changes);
+    if (!admissions) {
+        return std::unexpected{admissions.error()};
     }
-    *state_ = std::move(candidate);
+    admit_changes(*state_, *admissions);
     return {};
 }
 
@@ -932,8 +1026,7 @@ auto Document::generate_sync_message(SyncState& sync_state) const
     };
 }
 
-auto Document::receive_sync_message(SyncState& sync_state,
-                                    const SyncMessage& message)
+auto Document::receive_sync_message(SyncState& sync_state, const SyncMessage& message)
     -> std::expected<void, Error> {
     auto result = apply_changes(message.changes);
     if (!result) {
