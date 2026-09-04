@@ -1,8 +1,10 @@
 #include <automerge-cpp/automerge.hpp>
+#include <automerge-cpp/json.hpp>
 
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -435,5 +437,104 @@ TEST(ExpectedErrors, malformed_byte_decoders_report_kinds_without_mutation) {
     EXPECT_EQ(loaded.error().kind, ErrorKind::invalid_document);
     EXPECT_EQ(shallow.error().kind, ErrorKind::invalid_document);
     EXPECT_EQ(sync_state.error().kind, ErrorKind::decoding_error);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, json_exports_reject_unknown_objects_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+
+    const auto exported = json::export_json(document, unknown_object());
+    const auto flattened = json::flatten(document, unknown_object());
+
+    ASSERT_FALSE(exported);
+    ASSERT_FALSE(flattened);
+    EXPECT_EQ(exported.error().kind, ErrorKind::invalid_obj_id);
+    EXPECT_EQ(flattened.error().kind, ErrorKind::invalid_obj_id);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, historical_json_export_rejects_unknown_heads_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+    const auto heads = std::vector<ChangeHash>{ChangeHash{}};
+
+    const auto result = json::export_json_at(document, heads);
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_change);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, json_import_rejects_unknown_targets_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+
+    const auto document_result =
+        json::import_json(document, nlohmann::json{{"key", "value"}}, unknown_object());
+    const auto transaction_result = document.transact([](Transaction& transaction) {
+        return json::import_json(transaction, nlohmann::json{{"key", "value"}}, unknown_object());
+    });
+
+    ASSERT_FALSE(document_result);
+    ASSERT_FALSE(transaction_result);
+    EXPECT_EQ(document_result.error().kind, ErrorKind::invalid_obj_id);
+    EXPECT_EQ(transaction_result.error().kind, ErrorKind::invalid_obj_id);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, json_pointer_operations_reject_malformed_paths_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+
+    const auto read = json::get_pointer(document, "missing-slash");
+    const auto write = json::put_pointer(document, "/invalid~2escape", std::int64_t{1});
+    const auto remove = json::delete_pointer(document, "");
+
+    ASSERT_FALSE(read);
+    ASSERT_FALSE(write);
+    ASSERT_FALSE(remove);
+    EXPECT_EQ(read.error().kind, ErrorKind::invalid_operation);
+    EXPECT_EQ(write.error().kind, ErrorKind::invalid_operation);
+    EXPECT_EQ(remove.error().kind, ErrorKind::invalid_operation);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, json_patch_failure_rolls_back_prior_operations) {
+    auto document = Document{};
+    const auto before = document.save();
+    const auto patch = nlohmann::json::parse(R"([
+        {"op": "add", "path": "/temporary", "value": 1},
+        {"op": "test", "path": "/temporary", "value": 2}
+    ])");
+
+    const auto result = json::apply_json_patch(document, patch);
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_operation);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, json_merge_patch_rejects_unknown_targets_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+
+    const auto result =
+        json::apply_merge_patch(document, nlohmann::json{{"key", "value"}}, unknown_object());
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_obj_id);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, json_unflatten_rejects_unknown_targets_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+    const auto flat = std::map<std::string, nlohmann::json>{{"/key", "value"}};
+
+    const auto result = json::unflatten(document, flat, unknown_object());
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::invalid_obj_id);
     EXPECT_EQ(document.save(), before);
 }

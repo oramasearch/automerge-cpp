@@ -59,3 +59,12 @@ absence after the operation's inputs have been validated, such as a missing map 
 | `Document::marks`, `marks_at` | Unknown or non-sequence object; `marks_at` also rejects an unknown head | `std::expected<std::vector<Mark>, Error>` |
 | `Document::load`, `load_shallow` | Malformed, corrupt, truncated, or wrong-format document bytes | `std::expected<Document, Error>` |
 | `SyncState::decode` | Malformed, truncated, wrong-type, or trailing bytes | `std::expected<SyncState, Error>` |
+| `json::export_json`, `flatten` | Unknown subtree object | `std::expected<nlohmann::json, Error>` or `std::expected<std::map<std::string, nlohmann::json>, Error>` |
+| `json::export_json_at` | Unknown subtree object or historical head | `std::expected<nlohmann::json, Error>` |
+| `json::import_json` | Unknown or wrong-type target; invalid UTF-8 key or string value; inactive transaction | `std::expected<void, Error>` |
+| `json::get_pointer` | Malformed pointer, invalid UTF-8 key, or out-of-range list index; missing map paths are normal absence | `std::expected<std::optional<Value>, Error>` |
+| `json::put_pointer`, `delete_pointer` | Malformed or root pointer; invalid path type, key, value, or list index | `std::expected<void, Error>` |
+| `json::apply_json_patch` | Malformed patch or pointer; unknown operation; missing source; failed test; invalid target key, value, or index | `std::expected<void, Error>` |
+| `json::diff_json_patch`, `generate_merge_patch` | None for valid documents | `std::expected<nlohmann::json, Error>` |
+| `json::apply_merge_patch` | Unknown or wrong-type target; invalid key or value | `std::expected<void, Error>` |
+| `json::unflatten` | Unknown or wrong-type target; malformed pointer; invalid key or value | `std::expected<void, Error>` |

@@ -1235,9 +1235,9 @@ nlohmann::json patch_j = patches;                      // vector<Patch> → JSON
 
 ```cpp
 // Export the full document (or subtree) as JSON
-auto j = am::json::export_json(doc);                        // full document
-auto j = am::json::export_json(doc, config_id);             // subtree
-auto j = am::json::export_json_at(doc, heads);              // historical
+auto j = *am::json::export_json(doc);                        // full document
+auto j = *am::json::export_json(doc, config_id);             // subtree
+auto j = *am::json::export_json_at(doc, heads);              // historical
 
 // Import JSON into a document
 am::json::import_json(doc, json{{"name", "Alice"}, {"age", 30}});
@@ -1251,8 +1251,13 @@ doc.transact([&](am::Transaction& tx) {
 auto input = json{{"a", 1}, {"b", {{"c", 2}}}};
 auto doc = am::Document{};
 am::json::import_json(doc, input);
-assert(am::json::export_json(doc) == input);
+assert(*am::json::export_json(doc) == input);
 ```
+
+These document-facing JSON functions return `std::expected<..., Error>`. Invalid object IDs,
+historical heads, pointers, patch documents, target types, keys, values, and indices are reported
+without throwing. Mutating document overloads apply atomically and leave the document unchanged
+when they return an error.
 
 ### Child Object Lookup
 
@@ -1265,13 +1270,13 @@ auto elem  = doc.get_obj_id(list_id, std::size_t{0});  // list index
 ### JSON Pointer (RFC 6901)
 
 ```cpp
-auto val = am::json::get_pointer(doc, "/config/port");     // get nested value
+auto val = *am::json::get_pointer(doc, "/config/port");     // get nested value
 am::json::put_pointer(doc, "/config/timeout", am::ScalarValue{std::int64_t{30}});
 am::json::delete_pointer(doc, "/config/debug");
 
 // Escaped characters: ~0 = ~, ~1 = /
-auto val = am::json::get_pointer(doc, "/a~1b");            // key "a/b"
-auto val = am::json::get_pointer(doc, "/c~0d");            // key "c~d"
+auto val = *am::json::get_pointer(doc, "/a~1b");            // key "a/b"
+auto val = *am::json::get_pointer(doc, "/c~0d");            // key "c~d"
 
 // List append with "-"
 am::json::put_pointer(doc, "/items/-", am::ScalarValue{std::string{"new"}});
@@ -1290,7 +1295,7 @@ am::json::apply_json_patch(doc, json::parse(R"([
 ])"));
 
 // Generate a diff between two documents
-auto patch = am::json::diff_json_patch(doc_before, doc_after);
+auto patch = *am::json::diff_json_patch(doc_before, doc_after);
 ```
 
 ### JSON Merge Patch (RFC 7386)
@@ -1302,13 +1307,13 @@ am::json::apply_merge_patch(doc, json{
     {"config", {{"port", 9090}}},  // recursive merge
 });
 
-auto patch = am::json::generate_merge_patch(doc_before, doc_after);
+auto patch = *am::json::generate_merge_patch(doc_before, doc_after);
 ```
 
 ### Flatten / Unflatten
 
 ```cpp
-auto flat = am::json::flatten(doc);
+auto flat = *am::json::flatten(doc);
 // {"/name": "Alice", "/config/port": 8080, "/items/0": "Milk", ...}
 
 am::json::unflatten(doc, flat);  // recreate nested structure from flat map

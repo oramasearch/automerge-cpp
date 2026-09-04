@@ -58,7 +58,7 @@ int main() {
     // =========================================================================
     std::printf("\n=== 2. Export Automerge → JSON ===\n");
 
-    auto exported = am::json::export_json(doc);
+    auto exported = *am::json::export_json(doc);
     std::printf("Full recursive export:\n%s\n", exported.dump(2).c_str());
 
     // Round-trip check
@@ -71,10 +71,10 @@ int main() {
     // =========================================================================
     std::printf("\n=== 3. JSON Pointer (RFC 6901) ===\n");
 
-    if (auto val = am::json::get_pointer(doc, "/config/port")) {
+    if (auto val = *am::json::get_pointer(doc, "/config/port")) {
         std::printf("  /config/port = %ld\n", *am::get_scalar<std::int64_t>(*val));
     }
-    if (auto val = am::json::get_pointer(doc, "/tags/0")) {
+    if (auto val = *am::json::get_pointer(doc, "/tags/0")) {
         std::printf("  /tags/0 = %s\n", am::get_scalar<std::string>(*val)->c_str());
     }
 
@@ -84,8 +84,9 @@ int main() {
     am::json::delete_pointer(doc, "/config/debug");
     std::printf("  Deleted /config/debug\n");
 
-    std::printf("  Config after changes:\n%s\n",
-                am::json::export_json(doc, **doc.get_obj_id(am::root, "config")).dump(4).c_str());
+    std::printf(
+        "  Config after changes:\n%s\n",
+        (*am::json::export_json(doc, **doc.get_obj_id(am::root, "config"))).dump(4).c_str());
 
     // =========================================================================
     // 4. Fork, merge, diff as JSON Patch
@@ -98,7 +99,7 @@ int main() {
         tx.put(am::root, "active", false);
     });
 
-    auto diff = am::json::diff_json_patch(doc, bob);
+    auto diff = *am::json::diff_json_patch(doc, bob);
     std::printf("  Diff (RFC 6902):\n%s\n", diff.dump(2).c_str());
 
     doc.merge(bob);
@@ -133,7 +134,7 @@ int main() {
         {"config", {{"port", 9090}}},
     });
 
-    auto after_merge_patch = am::json::export_json(doc);
+    auto after_merge_patch = *am::json::export_json(doc);
     std::printf("  After merge patch:\n%s\n", after_merge_patch.dump(2).c_str());
 
     // =========================================================================
@@ -141,7 +142,7 @@ int main() {
     // =========================================================================
     std::printf("\n=== 7. Flatten ===\n");
 
-    auto flat = am::json::flatten(doc);
+    auto flat = *am::json::flatten(doc);
     for (const auto& [path, value] : flat) {
         std::printf("  %s = %s\n", path.c_str(), value.dump().c_str());
     }
@@ -170,8 +171,8 @@ int main() {
     std::printf("  Saved: %zu bytes\n", bytes.size());
 
     if (auto loaded = am::Document::load(bytes)) {
-        auto restored = am::json::export_json(*loaded);
-        if (restored == am::json::export_json(doc)) {
+        auto restored = *am::json::export_json(*loaded);
+        if (restored == *am::json::export_json(doc)) {
             std::printf("  Save/load round-trip: PASS\n");
         }
     }
