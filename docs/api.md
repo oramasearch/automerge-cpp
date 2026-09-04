@@ -112,6 +112,9 @@ nesting it. A returned error rolls back all operations performed by the callable
 `transact_with_patches`, an `expected<void, Error>` callable produces the same
 `expected<vector<Patch>, Error>` shape as a void callable.
 
+Read document state before entering the callback, or use the transaction's read operations inside
+it. Calling a `Document` read from the callback tries to acquire the document lock recursively.
+
 `CommitOptions::message` is an optional human-readable string. `CommitOptions::time` is an
 optional signed count of milliseconds since the Unix epoch. On commit, `time` becomes
 `Change::timestamp`. Default options preserve the existing encoding: timestamp `0` and no

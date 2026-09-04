@@ -64,8 +64,9 @@ int main() {
 
     // Concurrent editing with merge
     auto doc2 = doc.fork();
+    const auto text_length = *doc.length(text_id);
 
-    doc.transact([&](auto& tx) { tx.splice_text(text_id, *doc.length(text_id), 0, " rocks!"); });
+    doc.transact([&](auto& tx) { tx.splice_text(text_id, text_length, 0, " rocks!"); });
     doc2.transact([&](auto& tx) {
         tx.splice_text(text_id, 0, 4, "");  // remove ">>> "
     });
