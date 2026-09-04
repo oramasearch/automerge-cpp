@@ -11,18 +11,21 @@
 #include <concepts>
 #include <cstddef>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace automerge_cpp {
 
-namespace detail { struct DocState; }
+namespace detail {
+struct DocState;
+struct TransactionRollback;
+} // namespace detail
 
 /// A mutation interface for modifying a Document.
 ///
@@ -469,74 +472,11 @@ public:
     auto text(const ObjId& obj) const -> std::string;
 
 private:
-    struct MapEntryBefore {
-        OpId op_id;
-        Value value;
-    };
-
-    struct MapKeyAbsent {};
-
-    struct MapKeyBefore {
-        ObjId obj;
-        std::string key;
-        std::variant<MapKeyAbsent, MapEntryBefore, std::vector<MapEntryBefore>> entries;
-    };
-
-    struct ListInsert {
-        ObjId obj;
-        OpId element_id;
-    };
-
-    struct ListValueBefore {
-        ObjId obj;
-        OpId element_id;
-        Value value;
-    };
-
-    struct ListVisibilityBefore {
-        ObjId obj;
-        OpId element_id;
-        bool visible;
-    };
-
-    struct MarkInsert {
-        ObjId obj;
-        OpId mark_id;
-    };
-
-    struct ObjectInsert {
-        ObjId obj;
-    };
-
-    struct CommitBefore {
-        std::uint64_t local_seq;
-        std::vector<ChangeHash> heads;
-        std::optional<std::uint64_t> actor_clock;
-        std::size_t change_history_size;
-    };
-
-    void record_map_key(const ObjId& obj, const std::string& key);
-    void record_list_insert(const ObjId& obj, OpId element_id);
-    void record_list_value(const ObjId& obj, std::size_t index);
-    void record_list_visibility(const ObjId& obj, std::size_t index);
-    void record_mark_insert(const ObjId& obj, OpId mark_id);
-    void record_object_insert(const ObjId& obj);
-    void begin_commit();
-    void finish_commit();
     void commit();
 
     detail::DocState& state_;
     std::vector<Op> pending_ops_;
-    std::optional<MapKeyBefore> first_map_key_before_;
-    std::vector<MapKeyBefore> map_keys_before_;
-    std::vector<ListInsert> list_inserts_;
-    std::vector<ListValueBefore> list_values_before_;
-    std::vector<ListVisibilityBefore> list_visibility_before_;
-    std::vector<MarkInsert> mark_inserts_;
-    std::vector<ObjectInsert> object_inserts_;
-    std::optional<CommitBefore> commit_before_;
-    std::uint64_t start_op_{0};
-    bool active_{true};
+    std::unique_ptr<detail::TransactionRollback> rollback_state_;
 };
 
 }  // namespace automerge_cpp

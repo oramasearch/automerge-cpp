@@ -1,240 +1,26 @@
 #include <automerge-cpp/transaction.hpp>
 
-#include "doc_state.hpp"
+#include "transaction_rollback.hpp"
 
 namespace automerge_cpp {
 
 Transaction::Transaction(detail::DocState& state)
-    : state_{state}, start_op_{state.next_counter} {}
+    : state_{state}, rollback_state_{std::make_unique<detail::TransactionRollback>(state)} {}
 
 Transaction::~Transaction() {
     rollback();
 }
 
-void Transaction::record_map_key(const ObjId& obj, const std::string& key) {
-    auto* object = state_.get_object(obj);
-    assert(object);
-
-    const auto found = object->map_entries.find(key);
-    if (!first_map_key_before_ && found != object->map_entries.end() && found->second.size() == 1) {
-        first_map_key_before_.emplace(MapKeyBefore{
-            .obj = obj,
-            .key = key,
-            .entries =
-                MapEntryBefore{
-                    .op_id = found->second.front().op_id,
-                    .value = std::move(found->second.front().value),
-                },
-        });
-        return;
-    }
-    auto entries =
-        [&]() -> std::variant<MapKeyAbsent, MapEntryBefore, std::vector<MapEntryBefore>> {
-        if (found == object->map_entries.end()) {
-            return MapKeyAbsent{};
-        }
-        if (found->second.size() == 1) {
-            return MapEntryBefore{
-                .op_id = found->second.front().op_id,
-                .value = found->second.front().value,
-            };
-        }
-        auto result = std::vector<MapEntryBefore>{};
-        result.reserve(found->second.size());
-        std::ranges::transform(
-            found->second, std::back_inserter(result), [](const detail::MapEntry& entry) {
-                return MapEntryBefore{
-                    .op_id = entry.op_id,
-                    .value = entry.value,
-                };
-            });
-        return result;
-    }();
-    auto before = MapKeyBefore{
-        .obj = obj,
-        .key = key,
-        .entries = std::move(entries),
-    };
-    if (!first_map_key_before_) {
-        first_map_key_before_.emplace(std::move(before));
-        return;
-    }
-    map_keys_before_.push_back(std::move(before));
-}
-
-void Transaction::record_list_insert(const ObjId& obj, OpId element_id) {
-    list_inserts_.push_back(ListInsert{
-        .obj = obj,
-        .element_id = element_id,
-    });
-}
-
-void Transaction::record_list_value(const ObjId& obj, std::size_t index) {
-    const auto* object = state_.get_object(obj);
-    assert(object);
-    const auto real_index = state_.visible_index_to_real(*object, index);
-    assert(real_index < object->list_elements.size());
-    const auto& element = object->list_elements[real_index];
-    list_values_before_.push_back(ListValueBefore{
-        .obj = obj,
-        .element_id = element.insert_id,
-        .value = element.value,
-    });
-}
-
-void Transaction::record_list_visibility(const ObjId& obj, std::size_t index) {
-    const auto* object = state_.get_object(obj);
-    assert(object);
-    const auto real_index = state_.visible_index_to_real(*object, index);
-    assert(real_index < object->list_elements.size());
-    const auto& element = object->list_elements[real_index];
-    list_visibility_before_.push_back(ListVisibilityBefore{
-        .obj = obj,
-        .element_id = element.insert_id,
-        .visible = element.visible,
-    });
-}
-
-void Transaction::record_mark_insert(const ObjId& obj, OpId mark_id) {
-    mark_inserts_.push_back(MarkInsert{
-        .obj = obj,
-        .mark_id = mark_id,
-    });
-}
-
-void Transaction::record_object_insert(const ObjId& obj) {
-    object_inserts_.push_back(ObjectInsert{.obj = obj});
-}
-
-void Transaction::begin_commit() {
-    const auto clock_entry = state_.clock.find(state_.actor);
-    const auto actor_clock = clock_entry == state_.clock.end()
-                                 ? std::optional<std::uint64_t>{}
-                                 : std::optional<std::uint64_t>{clock_entry->second};
-    commit_before_.emplace(CommitBefore{
-        .local_seq = state_.local_seq,
-        .heads = std::move(state_.heads),
-        .actor_clock = actor_clock,
-        .change_history_size = state_.change_history.size(),
-    });
-}
-
-void Transaction::finish_commit() {
-    active_ = false;
-}
-
 void Transaction::rollback() {
-    if (!active_) {
-        return;
-    }
-
-    if (commit_before_) {
-        state_.local_seq = commit_before_->local_seq;
-        state_.heads = std::move(commit_before_->heads);
-        if (commit_before_->actor_clock) {
-            state_.clock[state_.actor] = *commit_before_->actor_clock;
-        } else {
-            state_.clock.erase(state_.actor);
-        }
-        state_.change_history.resize(commit_before_->change_history_size);
-    }
-
-    state_.next_counter = start_op_;
-
-    std::ranges::for_each(mark_inserts_ | std::views::reverse, [&](const MarkInsert& inserted) {
-        auto* object = state_.get_object(inserted.obj);
-        if (!object) {
-            return;
-        }
-        std::erase_if(object->marks, [&](const detail::MarkEntry& mark) {
-            return mark.mark_id == inserted.mark_id;
-        });
-    });
-
-    std::ranges::for_each(
-        list_visibility_before_ | std::views::reverse, [&](const ListVisibilityBefore& before) {
-            auto* object = state_.get_object(before.obj);
-            if (!object) {
-                return;
-            }
-            const auto found = std::ranges::find(
-                object->list_elements, before.element_id, &detail::ListElement::insert_id);
-            if (found != object->list_elements.end()) {
-                found->visible = before.visible;
-            }
-        });
-
-    std::ranges::for_each(
-        list_values_before_ | std::views::reverse, [&](const ListValueBefore& before) {
-            auto* object = state_.get_object(before.obj);
-            if (!object) {
-                return;
-            }
-            const auto found = std::ranges::find(
-                object->list_elements, before.element_id, &detail::ListElement::insert_id);
-            if (found != object->list_elements.end()) {
-                found->value = before.value;
-            }
-        });
-
-    std::ranges::for_each(list_inserts_ | std::views::reverse, [&](const ListInsert& inserted) {
-        auto* object = state_.get_object(inserted.obj);
-        if (!object) {
-            return;
-        }
-        std::erase_if(object->list_elements, [&](const detail::ListElement& element) {
-            return element.insert_id == inserted.element_id;
-        });
-    });
-
-    const auto restore_map_key = [&](MapKeyBefore& before) {
-        auto* object = state_.get_object(before.obj);
-        if (!object) {
-            return;
-        }
-        std::visit(overload{
-                       [&](MapKeyAbsent&) { object->map_entries.erase(before.key); },
-                       [&](MapEntryBefore& entry) {
-                           auto restored = std::vector<detail::MapEntry>{};
-                           restored.push_back(detail::MapEntry{
-                               .op_id = entry.op_id,
-                               .value = std::move(entry.value),
-                           });
-                           object->map_entries.insert_or_assign(before.key, std::move(restored));
-                       },
-                       [&](std::vector<MapEntryBefore>& entries) {
-                           auto restored = std::vector<detail::MapEntry>{};
-                           restored.reserve(entries.size());
-                           std::ranges::transform(
-                               entries, std::back_inserter(restored), [](MapEntryBefore& entry) {
-                                   return detail::MapEntry{
-                                       .op_id = entry.op_id,
-                                       .value = std::move(entry.value),
-                                   };
-                               });
-                           object->map_entries.insert_or_assign(before.key, std::move(restored));
-                       },
-                   },
-                   before.entries);
-    };
-    std::ranges::for_each(map_keys_before_ | std::views::reverse, restore_map_key);
-    if (first_map_key_before_) {
-        restore_map_key(*first_map_key_before_);
-    }
-
-    std::ranges::for_each(object_inserts_ | std::views::reverse, [&](const ObjectInsert& inserted) {
-        state_.objects.erase(inserted.obj);
-    });
-
+    rollback_state_->rollback(state_);
     pending_ops_.clear();
-    active_ = false;
 }
 
 void Transaction::put(const ObjId& obj, std::string_view key, ScalarValue val) {
-    assert(active_);
+    rollback_state_->assert_active();
     auto key_str = std::string{key};
     auto pred = state_.map_pred(obj, key_str);
-    record_map_key(obj, key_str);
+    rollback_state_->record_map_key(state_, obj, key_str);
     auto op_id = state_.next_op_id();
     auto value = Value{std::move(val)};
     state_.map_put(obj, key_str, op_id, value);
@@ -250,12 +36,12 @@ void Transaction::put(const ObjId& obj, std::string_view key, ScalarValue val) {
 }
 
 auto Transaction::put_object(const ObjId& obj, std::string_view key, ObjType type) -> ObjId {
-    assert(active_);
+    rollback_state_->assert_active();
     auto key_str = std::string{key};
     auto pred = state_.map_pred(obj, key_str);
-    record_map_key(obj, key_str);
+    rollback_state_->record_map_key(state_, obj, key_str);
     auto op_id = state_.next_op_id();
-    record_object_insert(ObjId{op_id});
+    rollback_state_->record_object_insert(ObjId{op_id});
     auto new_obj = state_.create_object(op_id, type);
     auto value = Value{type};
     state_.map_put(obj, key_str, op_id, value);
@@ -272,10 +58,10 @@ auto Transaction::put_object(const ObjId& obj, std::string_view key, ObjType typ
 }
 
 void Transaction::delete_key(const ObjId& obj, std::string_view key) {
-    assert(active_);
+    rollback_state_->assert_active();
     auto key_str = std::string{key};
     auto pred = state_.map_pred(obj, key_str);
-    record_map_key(obj, key_str);
+    rollback_state_->record_map_key(state_, obj, key_str);
     auto op_id = state_.next_op_id();
     state_.map_delete(obj, key_str);
     auto op = Op{
@@ -290,10 +76,10 @@ void Transaction::delete_key(const ObjId& obj, std::string_view key) {
 }
 
 void Transaction::insert(const ObjId& obj, std::size_t index, ScalarValue val) {
-    assert(active_);
+    rollback_state_->assert_active();
     auto insert_after = state_.insert_after_for(obj, index);
     auto op_id = state_.next_op_id();
-    record_list_insert(obj, op_id);
+    rollback_state_->record_list_insert(obj, op_id);
     auto value = Value{std::move(val)};
     state_.list_insert(obj, index, op_id, value, insert_after);
     auto op = Op{
@@ -309,11 +95,11 @@ void Transaction::insert(const ObjId& obj, std::size_t index, ScalarValue val) {
 }
 
 auto Transaction::insert_object(const ObjId& obj, std::size_t index, ObjType type) -> ObjId {
-    assert(active_);
+    rollback_state_->assert_active();
     auto insert_after = state_.insert_after_for(obj, index);
     auto op_id = state_.next_op_id();
-    record_list_insert(obj, op_id);
-    record_object_insert(ObjId{op_id});
+    rollback_state_->record_list_insert(obj, op_id);
+    rollback_state_->record_object_insert(ObjId{op_id});
     auto new_obj = state_.create_object(op_id, type);
     auto value = Value{type};
     state_.list_insert(obj, index, op_id, value, insert_after);
@@ -331,9 +117,9 @@ auto Transaction::insert_object(const ObjId& obj, std::size_t index, ObjType typ
 }
 
 void Transaction::set(const ObjId& obj, std::size_t index, ScalarValue val) {
-    assert(active_);
+    rollback_state_->assert_active();
     auto pred = state_.list_pred(obj, index);
-    record_list_value(obj, index);
+    rollback_state_->record_list_value(state_, obj, index);
     auto op_id = state_.next_op_id();
     auto value = Value{std::move(val)};
     state_.list_set(obj, index, op_id, value);
@@ -349,9 +135,9 @@ void Transaction::set(const ObjId& obj, std::size_t index, ScalarValue val) {
 }
 
 void Transaction::delete_index(const ObjId& obj, std::size_t index) {
-    assert(active_);
+    rollback_state_->assert_active();
     auto pred = state_.list_pred(obj, index);
-    record_list_visibility(obj, index);
+    rollback_state_->record_list_visibility(state_, obj, index);
     auto op_id = state_.next_op_id();
     state_.list_delete(obj, index);
     auto op = Op{
@@ -367,13 +153,12 @@ void Transaction::delete_index(const ObjId& obj, std::size_t index) {
 
 void Transaction::splice_text(const ObjId& obj, std::size_t pos, std::size_t del,
                                std::string_view text) {
-    assert(active_);
+    rollback_state_->assert_active();
     // Delete characters
     for (std::size_t i = 0; i < del; ++i) {
         auto pred = state_.list_pred(obj, pos);
-        record_list_visibility(obj, pos);
+        rollback_state_->record_list_visibility(state_, obj, pos);
         auto op_id = state_.next_op_id();
-        record_list_insert(obj, op_id);
         state_.list_delete(obj, pos);
         auto op = Op{
             .id = op_id,
@@ -397,6 +182,7 @@ void Transaction::splice_text(const ObjId& obj, std::size_t pos, std::size_t del
         }
 
         auto op_id = state_.next_op_id();
+        rollback_state_->record_list_insert(obj, op_id);
         prev_op_id = op_id;
         auto char_val = Value{ScalarValue{std::string(1, text[i])}};
         state_.list_insert(obj, pos + i, op_id, char_val, insert_after);
@@ -414,10 +200,10 @@ void Transaction::splice_text(const ObjId& obj, std::size_t pos, std::size_t del
 }
 
 void Transaction::increment(const ObjId& obj, std::string_view key, std::int64_t delta) {
-    assert(active_);
+    rollback_state_->assert_active();
     auto key_str = std::string{key};
     auto pred = state_.map_pred(obj, key_str);
-    record_map_key(obj, key_str);
+    rollback_state_->record_map_key(state_, obj, key_str);
     auto op_id = state_.next_op_id();
     state_.counter_increment(obj, key_str, delta);
     auto op = Op{
@@ -433,7 +219,7 @@ void Transaction::increment(const ObjId& obj, std::string_view key, std::int64_t
 
 void Transaction::mark(const ObjId& obj, std::size_t start, std::size_t end,
                        std::string_view name, ScalarValue value) {
-    assert(active_);
+    rollback_state_->assert_active();
     // Resolve start and end to element OpIds
     auto start_elem = state_.list_element_id_at(obj, start);
     assert(start_elem);
@@ -442,7 +228,7 @@ void Transaction::mark(const ObjId& obj, std::size_t start, std::size_t end,
 
     auto name_str = std::string{name};
     auto op_id = state_.next_op_id();
-    record_mark_insert(obj, op_id);
+    rollback_state_->record_mark_insert(obj, op_id);
     state_.mark_range(obj, op_id, *start_elem, *end_elem,
                       name_str, value);
     auto op = Op{
@@ -457,23 +243,23 @@ void Transaction::mark(const ObjId& obj, std::size_t start, std::size_t end,
 }
 
 void Transaction::commit() {
-    if (!active_) {
+    if (!rollback_state_->is_active()) {
         return;
     }
     if (pending_ops_.empty()) {
-        finish_commit();
+        rollback_state_->finish_commit();
         return;
     }
 
-    begin_commit();
+    rollback_state_->begin_commit(state_);
 
     auto change = Change{
         .actor = state_.actor,
         .seq = ++state_.local_seq,
-        .start_op = start_op_,
+        .start_op = rollback_state_->start_op(),
         .timestamp = 0,
         .message = std::nullopt,
-        .deps = commit_before_->heads,
+        .deps = rollback_state_->heads_before(),
         .operations = std::move(pending_ops_),
     };
 
@@ -481,7 +267,7 @@ void Transaction::commit() {
 
     // Update heads: remove deps, add new hash
     auto new_heads = std::vector<ChangeHash>{};
-    for (const auto& h : commit_before_->heads) {
+    for (const auto& h : rollback_state_->heads_before()) {
         if (std::ranges::find(change.deps, h) == change.deps.end()) {
             new_heads.push_back(h);
         }
@@ -494,7 +280,7 @@ void Transaction::commit() {
 
     // Store change
     state_.change_history.push_back(std::move(change));
-    finish_commit();
+    rollback_state_->finish_commit();
 }
 
 // =============================================================================
