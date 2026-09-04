@@ -134,8 +134,8 @@ void expect_fixture_state(std::string_view name, const Document& document) {
     if (name == "commit_metadata") {
         const auto changes = document.get_changes();
         ASSERT_EQ(changes.size(), 1u);
-        EXPECT_EQ(changes[0].message, "fixture metadata");
-        EXPECT_EQ(changes[0].timestamp, 1'700'000'000);
+        EXPECT_EQ(changes[0].message, "import customer record");
+        EXPECT_EQ(changes[0].timestamp, 1'725'000'000'123);
         return;
     }
     if (name == "long_history") {

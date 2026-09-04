@@ -21,7 +21,7 @@ hash per line in `<case>.hashes`.
 | `counter_increments` | Counter creation and positive and negative increment operations | Checked |
 | `deletes_tombstones` | Map and list deletes preserve the operation history needed for later insertion | Checked |
 | `concurrent_conflicts` | Concurrent map puts retain both values and deterministic heads | Checked |
-| `commit_metadata` | A change carries a message and timestamp | Pending issue #3, which adds public C++ commit options |
+| `commit_metadata` | A change carries a message and timestamp | Checked |
 | `long_history` | A linear history of 1,000 changes, including compressed compact-document columns | Checked |
 | `interleaved_histories` | Two fixed actors alternate causally linked changes | Checked |
 | `empty_document` | An empty compact document loads and an empty C++ save loads in automerge-rs | Checked |

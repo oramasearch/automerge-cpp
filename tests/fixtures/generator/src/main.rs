@@ -32,6 +32,7 @@ const CPP_CASES: &[&str] = &[
     "counter_increments",
     "deletes_tombstones",
     "concurrent_conflicts",
+    "commit_metadata",
     "long_history",
     "interleaved_histories",
     "empty_document",
@@ -430,8 +431,8 @@ fn verify_cpp(output_directory: &Path) {
         } else {
             fixture_directory().join(format!("{name}.automerge"))
         };
-        let mut actual = load_document(&actual_path);
-        let mut expected = load_document(&expected_path);
+        let actual = load_document(&actual_path);
+        let expected = load_document(&expected_path);
 
         assert_eq!(
             actual.stats().num_changes,

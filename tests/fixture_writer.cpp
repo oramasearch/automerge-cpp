@@ -156,6 +156,17 @@ auto concurrent_conflicts() -> am::Document {
     return first;
 }
 
+auto commit_metadata() -> am::Document {
+    auto document = document_with_actor(std::byte{0x77});
+    document.transact(
+        [](am::Transaction& transaction) { transaction.put(am::root, "metadata", true); },
+        am::CommitOptions{
+            .message = "import customer record",
+            .time = std::int64_t{1'725'000'000'123},
+        });
+    return document;
+}
+
 auto long_history() -> am::Document {
     auto document = document_with_actor(std::byte{0x8b});
     for (auto index = 0; index < 1'000; ++index) {
@@ -230,6 +241,7 @@ auto main(int argc, char** argv) -> int {
         Fixture{"counter_increments", counter_increments},
         Fixture{"deletes_tombstones", deletes_tombstones},
         Fixture{"concurrent_conflicts", concurrent_conflicts},
+        Fixture{"commit_metadata", commit_metadata},
         Fixture{"long_history", long_history},
         Fixture{"interleaved_histories", interleaved_histories},
         Fixture{"empty_document", empty_document},
