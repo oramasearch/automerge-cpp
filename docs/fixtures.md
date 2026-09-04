@@ -39,7 +39,8 @@ and require `Document::save()` to reproduce the full stream. Compact documents a
 inflating each deflated column and clearing its deflate flag. The resulting raw columns must match
 byte for byte. DEFLATE permits multiple valid byte streams for the same input, and zlib output can
 differ by platform, so comparing the compressed payload itself would test the compressor rather
-than Automerge compatibility.
+than Automerge compatibility. A loaded compact document is verified by compact reserialization;
+its equivalent change DAG can use a different topological order than the source change stream.
 
 When Cargo is available, CTest also runs the reverse direction. A C++ fixture writer creates both
 the change stream and `save_compact()` document chunk for each supported case under the build

@@ -297,7 +297,10 @@ TEST(ChangeHashFixture, matches_automerge_rs_change_chunks) {
         ASSERT_TRUE(compact_result.has_value()) << fixture_name;
         EXPECT_EQ(*compact_result, expected_hashes.size()) << fixture_name;
         EXPECT_EQ(compact_document.get_heads(), expected_heads) << fixture_name;
-        EXPECT_EQ(compact_document.save(), bytes) << fixture_name;
+        const auto inflated_round_trip_document =
+            inflate_document_chunk(compact_document.save_compact());
+        ASSERT_TRUE(inflated_round_trip_document.has_value()) << fixture_name;
+        EXPECT_EQ(*inflated_round_trip_document, *inflated_expected_document) << fixture_name;
     }
 
     auto actor_bytes = std::array<std::byte, automerge_cpp::ActorId::size>{};
