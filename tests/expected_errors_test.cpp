@@ -105,6 +105,32 @@ TEST(ExpectedErrors, mutator_rejects_invalid_utf8_string_without_mutation) {
     EXPECT_EQ(document.save(), before);
 }
 
+TEST(ExpectedErrors, string_overloads_reject_null_pointers_without_mutation) {
+    auto document = Document{};
+    const auto list = *document.transact([](Transaction& transaction) {
+        const auto result = *transaction.put(root, "list", ObjType::list);
+        transaction.insert(result, 0, "value");
+        return result;
+    });
+    const auto before = document.save();
+    const auto* null_string = static_cast<const char*>(nullptr);
+
+    const auto put = document.transact(
+        [&](Transaction& transaction) { return transaction.put(root, "key", null_string); });
+    const auto insert = document.transact(
+        [&](Transaction& transaction) { return transaction.insert(list, 1, null_string); });
+    const auto set = document.transact(
+        [&](Transaction& transaction) { return transaction.set(list, 0, null_string); });
+
+    ASSERT_FALSE(put);
+    ASSERT_FALSE(insert);
+    ASSERT_FALSE(set);
+    EXPECT_EQ(put.error().kind, ErrorKind::invalid_value_type);
+    EXPECT_EQ(insert.error().kind, ErrorKind::invalid_value_type);
+    EXPECT_EQ(set.error().kind, ErrorKind::invalid_value_type);
+    EXPECT_EQ(document.save(), before);
+}
+
 TEST(ExpectedErrors, compound_mutator_validates_all_entries_before_mutation) {
     auto document = Document{};
     const auto before = document.save();
@@ -426,17 +452,67 @@ TEST(ExpectedErrors, malformed_byte_decoders_report_kinds_without_mutation) {
     auto document = Document{};
     const auto before = document.save();
     const auto bytes = std::vector<std::byte>{std::byte{0xff}};
+    auto loaded_with_patches = Document{};
+    const auto loaded_with_patches_before = loaded_with_patches.save();
 
     const auto loaded = Document::load(bytes);
     const auto shallow = Document::load_shallow(bytes);
+    const auto patches = Document::load_with_patches(bytes, loaded_with_patches);
+    const auto incremental = document.load_incremental(bytes);
+    const auto sync_message = SyncMessage::decode(bytes);
     const auto sync_state = SyncState::decode(bytes);
 
     ASSERT_FALSE(loaded);
     ASSERT_FALSE(shallow);
+    ASSERT_FALSE(patches);
+    ASSERT_FALSE(incremental);
+    ASSERT_FALSE(sync_message);
     ASSERT_FALSE(sync_state);
     EXPECT_EQ(loaded.error().kind, ErrorKind::invalid_document);
     EXPECT_EQ(shallow.error().kind, ErrorKind::invalid_document);
+    EXPECT_EQ(patches.error().kind, ErrorKind::invalid_document);
+    EXPECT_EQ(incremental.error().kind, ErrorKind::invalid_document);
+    EXPECT_EQ(sync_message.error().kind, ErrorKind::decoding_error);
     EXPECT_EQ(sync_state.error().kind, ErrorKind::decoding_error);
+    EXPECT_EQ(document.save(), before);
+    EXPECT_EQ(loaded_with_patches.save(), loaded_with_patches_before);
+}
+
+TEST(ExpectedErrors, external_change_operations_reject_malformed_changes_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+    const auto changes = std::vector<Change>{Change{}};
+    auto sync_state = SyncState{};
+    const auto message = SyncMessage{.changes = changes};
+
+    const auto applied = document.apply_changes(changes);
+    const auto applied_patches = document.apply_changes_with_patches(changes);
+    const auto received = document.receive_sync_message(sync_state, message);
+    const auto received_patches = document.receive_sync_message_with_patches(sync_state, message);
+
+    ASSERT_FALSE(applied);
+    ASSERT_FALSE(applied_patches);
+    ASSERT_FALSE(received);
+    ASSERT_FALSE(received_patches);
+    EXPECT_EQ(applied.error().kind, ErrorKind::invalid_change);
+    EXPECT_EQ(applied_patches.error().kind, ErrorKind::invalid_change);
+    EXPECT_EQ(received.error().kind, ErrorKind::invalid_change);
+    EXPECT_EQ(received_patches.error().kind, ErrorKind::invalid_change);
+    EXPECT_EQ(document.save(), before);
+}
+
+TEST(ExpectedErrors, sync_receive_rejects_invalid_bloom_filters_without_mutation) {
+    auto document = Document{};
+    const auto before = document.save();
+    auto sync_state = SyncState{};
+    const auto message = SyncMessage{
+        .have = {Have{.bloom_bytes = {std::byte{0xff}}}},
+    };
+
+    const auto result = document.receive_sync_message(sync_state, message);
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().kind, ErrorKind::sync_error);
     EXPECT_EQ(document.save(), before);
 }
 

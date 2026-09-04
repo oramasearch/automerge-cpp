@@ -161,6 +161,10 @@ public:
     /// Put a string literal at a map key.
     auto put(const ObjId& obj, std::string_view key, const char* val)
         -> std::expected<void, Error> {
+        if (!val) {
+            return std::unexpected{
+                Error{ErrorKind::invalid_value_type, "string pointer must not be null"}};
+        }
         return put(obj, key, ScalarValue{std::string{val}});
     }
     /// Put a string_view at a map key (copies into the document).
@@ -222,6 +226,10 @@ public:
     /// Insert a string literal into a list.
     auto insert(const ObjId& obj, std::size_t index, const char* val)
         -> std::expected<void, Error> {
+        if (!val) {
+            return std::unexpected{
+                Error{ErrorKind::invalid_value_type, "string pointer must not be null"}};
+        }
         return insert(obj, index, ScalarValue{std::string{val}});
     }
     /// Insert a string_view into a list.
@@ -514,6 +522,10 @@ public:
     }
     /// Set a string literal at a list index.
     auto set(const ObjId& obj, std::size_t index, const char* val) -> std::expected<void, Error> {
+        if (!val) {
+            return std::unexpected{
+                Error{ErrorKind::invalid_value_type, "string pointer must not be null"}};
+        }
         return set(obj, index, ScalarValue{std::string{val}});
     }
     /// Set a string_view at a list index.

@@ -1555,6 +1555,12 @@ auto Document::generate_sync_message(SyncState& sync_state) const -> std::option
 
 static auto validate_sync_message(const detail::DocState& state, const SyncMessage& message)
     -> std::expected<std::vector<ChangeAdmission>, Error> {
+    for (const auto& have : message.have) {
+        if (!sync::BloomFilter::from_bytes(have.bloom_bytes)) {
+            return std::unexpected{
+                Error{ErrorKind::sync_error, "sync message contains an invalid bloom filter"}};
+        }
+    }
     if (!message.encoding_cache || message.encoding_cache->changes != message.changes ||
         message.encoding_cache->encoded_changes.size() != message.changes.size()) {
         return validate_changes(state, message.changes);
