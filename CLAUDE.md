@@ -44,6 +44,7 @@ automerge-cpp/
 │   │   ├── chunk.hpp                       #     chunk envelope and upstream change hash
 │   │   ├── change_chunk.hpp                #     complete change chunk serialization/deserialization
 │   │   ├── document_chunk.hpp              #     compact document chunk deserialization
+│   │   ├── document_chunk_writer.hpp       #     compact document chunk serialization
 │   │   └── columns/                        #     columnar encoding
 │   │       ├── column_spec.hpp             #       column type enum and spec bitfield
 │   │       ├── raw_column.hpp              #       raw column parse/write
