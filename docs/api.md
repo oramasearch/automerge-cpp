@@ -307,7 +307,8 @@ Created internally by `Document::transact()`. Provides all mutation operations.
 
 `transact()` commits only when its callable returns successfully. If the callable throws,
 the document is restored and the exception is rethrown. `Transaction::rollback()` may be
-called explicitly to discard its writes; it is idempotent and prevents a later commit.
+called explicitly to discard its writes and prevents a later commit. Reusing a committed or
+rolled-back transaction returns `ErrorKind::inactive_transaction`.
 Reads through the transaction observe its writes before commit.
 
 ```cpp
@@ -328,12 +329,12 @@ For the implementation design and benchmark measurements, see
 ### Map Operations
 
 ```cpp
-tx.put(ObjId, std::string_view key, ScalarValue val)  -> void
-tx.put(ObjId, std::string_view key, ObjType type)     -> ObjId   // create empty object
-tx.put(ObjId, std::string_view key, List{...})         -> ObjId   // create populated list
-tx.put(ObjId, std::string_view key, Map{...})          -> ObjId   // create populated map
-tx.put_object(ObjId, std::string_view key, ObjType)    -> ObjId   // alias for put(ObjType)
-tx.delete_key(ObjId, std::string_view key)             -> void
+tx.put(ObjId, std::string_view key, ScalarValue val) -> std::expected<void, Error>
+tx.put(ObjId, std::string_view key, ObjType type) -> std::expected<ObjId, Error>
+tx.put(ObjId, std::string_view key, List{...}) -> std::expected<ObjId, Error>
+tx.put(ObjId, std::string_view key, Map{...}) -> std::expected<ObjId, Error>
+tx.put_object(ObjId, std::string_view key, ObjType) -> std::expected<ObjId, Error>
+tx.delete_key(ObjId, std::string_view key) -> std::expected<void, Error>
 ```
 
 ### Scalar Convenience Overloads (Map)
@@ -357,13 +358,13 @@ tx.put(root, "created", Timestamp{1700000000000}); // Timestamp
 ### List Operations
 
 ```cpp
-tx.insert(ObjId, std::size_t index, ScalarValue val)   -> void
-tx.insert(ObjId, std::size_t index, ObjType type)      -> ObjId   // create empty object
-tx.insert(ObjId, std::size_t index, List{...})          -> ObjId   // create populated list
-tx.insert(ObjId, std::size_t index, Map{...})           -> ObjId   // create populated map
-tx.insert_object(ObjId, std::size_t index, ObjType)     -> ObjId   // alias for insert(ObjType)
-tx.set(ObjId, std::size_t index, ScalarValue val)       -> void
-tx.delete_index(ObjId, std::size_t index)               -> void
+tx.insert(ObjId, std::size_t index, ScalarValue val) -> std::expected<void, Error>
+tx.insert(ObjId, std::size_t index, ObjType type) -> std::expected<ObjId, Error>
+tx.insert(ObjId, std::size_t index, List{...}) -> std::expected<ObjId, Error>
+tx.insert(ObjId, std::size_t index, Map{...}) -> std::expected<ObjId, Error>
+tx.insert_object(ObjId, std::size_t index, ObjType) -> std::expected<ObjId, Error>
+tx.set(ObjId, std::size_t index, ScalarValue val) -> std::expected<void, Error>
+tx.delete_index(ObjId, std::size_t index) -> std::expected<void, Error>
 ```
 
 ### Scalar Convenience Overloads (List)
@@ -390,16 +391,16 @@ key-value pairs `{{"k", v}, ...}` create a map.
 
 ```cpp
 // Bare initializer lists (auto-detect list vs map)
-tx.put(ObjId, key, {values...})            -> ObjId   // creates list
-tx.put(ObjId, key, {{"k1",v1}, {"k2",v2}}) -> ObjId   // creates map
-tx.insert(ObjId, idx, {values...})          -> ObjId   // creates list in list
-tx.insert(ObjId, idx, {{"k1",v1}, ...})     -> ObjId   // creates map in list
+tx.put(ObjId, key, {values...}) -> std::expected<ObjId, Error>
+tx.put(ObjId, key, {{"k1",v1}, {"k2",v2}}) -> std::expected<ObjId, Error>
+tx.insert(ObjId, idx, {values...}) -> std::expected<ObjId, Error>
+tx.insert(ObjId, idx, {{"k1",v1}, ...}) -> std::expected<ObjId, Error>
 
 // Explicit wrappers (List{}, Map{})
-tx.put(ObjId, key, List{values...})         -> ObjId
-tx.put(ObjId, key, Map{{"k1",v1}, ...})     -> ObjId
-tx.insert(ObjId, idx, List{values...})      -> ObjId
-tx.insert(ObjId, idx, Map{{"k1",v1}, ...})  -> ObjId
+tx.put(ObjId, key, List{values...}) -> std::expected<ObjId, Error>
+tx.put(ObjId, key, Map{{"k1",v1}, ...}) -> std::expected<ObjId, Error>
+tx.insert(ObjId, idx, List{values...}) -> std::expected<ObjId, Error>
+tx.insert(ObjId, idx, Map{{"k1",v1}, ...}) -> std::expected<ObjId, Error>
 ```
 
 #### Examples
@@ -407,22 +408,22 @@ tx.insert(ObjId, idx, Map{{"k1",v1}, ...})  -> ObjId
 ```cpp
 doc.transact([](auto& tx) {
     // Bare initializer lists — auto-detects list vs map
-    auto items = tx.put(root, "items", {"Milk", "Eggs", "Bread"});
-    auto config = tx.put(root, "config", {{"port", 8080}, {"host", "localhost"}});
+    auto items = *tx.put(root, "items", {"Milk", "Eggs", "Bread"});
+    auto config = *tx.put(root, "config", {{"port", 8080}, {"host", "localhost"}});
 
     // Explicit wrappers work too
-    auto tags = tx.put(root, "tags", List{"crdt", "cpp"});
-    auto meta = tx.put(root, "meta", Map{{"version", "1.0"}});
+    auto tags = *tx.put(root, "tags", List{"crdt", "cpp"});
+    auto meta = *tx.put(root, "meta", Map{{"version", "1.0"}});
 
     // Mixed types — int, string, double, bool
-    auto mixed = tx.put(root, "data", List{1, "hello", 3.14, true});
+    auto mixed = *tx.put(root, "data", List{1, "hello", 3.14, true});
 
     // Empty containers
-    auto empty_list = tx.put(root, "log", List{});
-    auto empty_map = tx.put(root, "meta", Map{});
+    auto empty_list = *tx.put(root, "log", List{});
+    auto empty_map = *tx.put(root, "meta", Map{});
 
     // Insert populated objects into lists
-    auto records = tx.put(root, "users", ObjType::list);
+    auto records = *tx.put(root, "users", ObjType::list);
     tx.insert(records, 0, {{"name", "Alice"}, {"role", "admin"}});
     tx.insert(records, 1, {{"name", "Bob"}, {"role", "editor"}});
 });
@@ -439,13 +440,13 @@ associative containers create maps. Uses `std::ranges::for_each` and
 ```cpp
 // Any range (vector, set, deque, etc.) → creates list
 template <std::ranges::input_range R>
-tx.put(ObjId, key, R&& range)              -> ObjId
-tx.insert(ObjId, idx, R&& range)           -> ObjId
+tx.put(ObjId, key, R&& range) -> std::expected<ObjId, Error>
+tx.insert(ObjId, idx, R&& range) -> std::expected<ObjId, Error>
 
 // Any associative container (map, unordered_map) → creates map
 template <typename AssocContainer>  // requires mapped_type
-tx.put(ObjId, key, const AssocContainer&)   -> ObjId
-tx.insert(ObjId, idx, const AssocContainer&) -> ObjId
+tx.put(ObjId, key, const AssocContainer&) -> std::expected<ObjId, Error>
+tx.insert(ObjId, idx, const AssocContainer&) -> std::expected<ObjId, Error>
 ```
 
 #### Examples
@@ -534,21 +535,33 @@ tx.splice_text(ObjId, std::size_t pos, std::size_t del,
 ```
 
 `pos` and `del` count Unicode scalar values. Inserted text must be valid UTF-8; invalid input
-returns `ErrorKind::invalid_operation` before the text object is changed. Each inserted scalar
+returns `ErrorKind::invalid_utf8` before the text object is changed. Each inserted scalar
 value produces one operation. A grapheme cluster can contain multiple scalar values and may be
 split by local or concurrent edits, matching upstream Automerge behavior.
 
 ### Counter Operations
 
 ```cpp
-tx.increment(ObjId, std::string_view key, std::int64_t delta) -> void
+tx.increment(ObjId, std::string_view key, std::int64_t delta) -> std::expected<void, Error>
 ```
 
 ### Mark Operations (Rich Text)
 
 ```cpp
 tx.mark(ObjId, std::size_t start, std::size_t end,
-        std::string_view name, ScalarValue value) -> void
+        std::string_view name, ScalarValue value) -> std::expected<void, Error>
+```
+
+Transaction reads validate their object before reporting normal absence:
+
+```cpp
+tx.get(ObjId, key) -> std::expected<std::optional<Value>, Error>
+tx.get(ObjId, index) -> std::expected<Value, Error>
+tx.get_obj_id(ObjId, key_or_index) -> std::expected<std::optional<ObjId>, Error>
+tx.object_type(ObjId) -> std::expected<ObjType, Error>
+tx.length(ObjId) -> std::expected<std::size_t, Error>
+tx.keys(ObjId) -> std::expected<std::vector<std::string>, Error>
+tx.text(ObjId) -> std::expected<std::string, Error>
 ```
 
 ---

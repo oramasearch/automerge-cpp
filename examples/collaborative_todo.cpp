@@ -33,7 +33,7 @@ int main() {
     // Bare initializer list — creates the todos list in one call
     auto todo_list = alice_doc.transact([](am::Transaction& tx) {
         tx.put(am::root, "title", "Team Tasks");
-        return tx.put(am::root, "todos", {"Set up CI pipeline", "Write unit tests"});
+        return *tx.put(am::root, "todos", {"Set up CI pipeline", "Write unit tests"});
     });
 
     // Map{} wrapper — create a metadata map with explicit wrapper

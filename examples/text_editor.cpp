@@ -18,7 +18,7 @@ int main() {
 
     // Create a text object — transact returns the ObjId directly
     auto text_id = doc.transact([](am::Transaction& tx) {
-        auto id = tx.put(am::root, "content", am::ObjType::text);
+        auto id = *tx.put(am::root, "content", am::ObjType::text);
         tx.splice_text(id, 0, 0, "Hello World");
         return id;
     });

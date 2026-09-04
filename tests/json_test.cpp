@@ -20,9 +20,8 @@ using json = nlohmann::json;
 
 TEST(GetObjId, map_child) {
     auto doc = am::Document{};
-    auto child_id = doc.transact([](am::Transaction& tx) {
-        return tx.put_object(am::root, "nested", am::ObjType::map);
-    });
+    auto child_id = doc.transact(
+        [](am::Transaction& tx) { return *tx.put_object(am::root, "nested", am::ObjType::map); });
     auto result = doc.get_obj_id(am::root, "nested");
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, child_id);
@@ -31,7 +30,7 @@ TEST(GetObjId, map_child) {
 TEST(GetObjId, list_child) {
     auto doc = am::Document{};
     auto list_id = doc.transact([](am::Transaction& tx) {
-        auto list = tx.put_object(am::root, "items", am::ObjType::list);
+        auto list = *tx.put_object(am::root, "items", am::ObjType::list);
         tx.insert_object(list, 0, am::ObjType::map);
         return list;
     });
@@ -308,7 +307,7 @@ TEST(JsonExport, mixed_types) {
 TEST(JsonExport, text_object_as_string) {
     auto doc = am::Document{};
     doc.transact([](am::Transaction& tx) {
-        auto text = tx.put_object(am::root, "content", am::ObjType::text);
+        auto text = *tx.put_object(am::root, "content", am::ObjType::text);
         tx.splice_text(text, 0, 0, "hello world");
     });
     auto j = am::json::export_json(doc);
@@ -318,8 +317,8 @@ TEST(JsonExport, text_object_as_string) {
 TEST(JsonExport, deeply_nested) {
     auto doc = am::Document{};
     doc.transact([](am::Transaction& tx) {
-        auto a = tx.put_object(am::root, "a", am::ObjType::map);
-        auto b = tx.put_object(a, "b", am::ObjType::map);
+        auto a = *tx.put_object(am::root, "a", am::ObjType::map);
+        auto b = *tx.put_object(a, "b", am::ObjType::map);
         tx.put(b, "c", 42);
     });
     auto j = am::json::export_json(doc);
@@ -329,10 +328,10 @@ TEST(JsonExport, deeply_nested) {
 TEST(JsonExport, list_of_maps) {
     auto doc = am::Document{};
     doc.transact([](am::Transaction& tx) {
-        auto list = tx.put_object(am::root, "users", am::ObjType::list);
-        auto u0 = tx.insert_object(list, 0, am::ObjType::map);
+        auto list = *tx.put_object(am::root, "users", am::ObjType::list);
+        auto u0 = *tx.insert_object(list, 0, am::ObjType::map);
         tx.put(u0, "name", "Alice");
-        auto u1 = tx.insert_object(list, 1, am::ObjType::map);
+        auto u1 = *tx.insert_object(list, 1, am::ObjType::map);
         tx.put(u1, "name", "Bob");
     });
     auto j = am::json::export_json(doc);
@@ -342,9 +341,8 @@ TEST(JsonExport, list_of_maps) {
 
 TEST(JsonExport, subtree_export) {
     auto doc = am::Document{};
-    auto config = doc.transact([](am::Transaction& tx) {
-        return tx.put(am::root, "config", am::Map{{"port", 8080}});
-    });
+    auto config = doc.transact(
+        [](am::Transaction& tx) { return *tx.put(am::root, "config", am::Map{{"port", 8080}}); });
     auto j = am::json::export_json(doc, config);
     EXPECT_EQ(j["port"], 8080);
 }
@@ -892,8 +890,8 @@ TEST(JsonFlatten, list_indices) {
 TEST(JsonFlatten, deeply_nested) {
     auto doc = am::Document{};
     doc.transact([](am::Transaction& tx) {
-        auto a = tx.put_object(am::root, "a", am::ObjType::map);
-        auto b = tx.put_object(a, "b", am::ObjType::map);
+        auto a = *tx.put_object(am::root, "a", am::ObjType::map);
+        auto b = *tx.put_object(a, "b", am::ObjType::map);
         tx.put(b, "c", 42);
     });
     auto flat = am::json::flatten(doc);
@@ -946,7 +944,7 @@ TEST(JsonFlatten, round_trip) {
 TEST(JsonFlatten, text_object) {
     auto doc = am::Document{};
     doc.transact([](am::Transaction& tx) {
-        auto text = tx.put_object(am::root, "content", am::ObjType::text);
+        auto text = *tx.put_object(am::root, "content", am::ObjType::text);
         tx.splice_text(text, 0, 0, "hello");
     });
     auto flat = am::json::flatten(doc);

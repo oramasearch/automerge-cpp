@@ -94,9 +94,7 @@ BENCHMARK(bm_map_keys);
 static void bm_list_insert_append(benchmark::State& state) {
     auto doc = make_doc();
     ObjId list_id;
-    doc.transact([&](auto& tx) {
-        list_id = tx.put_object(root, "list", ObjType::list);
-    });
+    doc.transact([&](auto& tx) { list_id = *tx.put_object(root, "list", ObjType::list); });
 
     std::size_t idx = 0;
     for (auto _ : state) {
@@ -111,9 +109,7 @@ BENCHMARK(bm_list_insert_append);
 static void bm_list_insert_front(benchmark::State& state) {
     auto doc = make_doc();
     ObjId list_id;
-    doc.transact([&](auto& tx) {
-        list_id = tx.put_object(root, "list", ObjType::list);
-    });
+    doc.transact([&](auto& tx) { list_id = *tx.put_object(root, "list", ObjType::list); });
 
     for (auto _ : state) {
         doc.transact([&](auto& tx) {
@@ -128,7 +124,7 @@ static void bm_list_get(benchmark::State& state) {
     auto doc = make_doc();
     ObjId list_id;
     doc.transact([&](auto& tx) {
-        list_id = tx.put_object(root, "list", ObjType::list);
+        list_id = *tx.put_object(root, "list", ObjType::list);
         for (int i = 0; i < 1000; ++i) {
             tx.insert(list_id, static_cast<std::size_t>(i), std::int64_t{i});
         }
@@ -149,9 +145,7 @@ BENCHMARK(bm_list_get);
 static void bm_text_splice_append(benchmark::State& state) {
     auto doc = make_doc();
     ObjId text_id;
-    doc.transact([&](auto& tx) {
-        text_id = tx.put_object(root, "text", ObjType::text);
-    });
+    doc.transact([&](auto& tx) { text_id = *tx.put_object(root, "text", ObjType::text); });
 
     std::size_t pos = 0;
     for (auto _ : state) {
@@ -167,9 +161,7 @@ BENCHMARK(bm_text_splice_append);
 static void bm_text_splice_bulk(benchmark::State& state) {
     auto doc = make_doc();
     ObjId text_id;
-    doc.transact([&](auto& tx) {
-        text_id = tx.put_object(root, "text", ObjType::text);
-    });
+    doc.transact([&](auto& tx) { text_id = *tx.put_object(root, "text", ObjType::text); });
 
     const auto chunk = std::string(100, 'a');
     std::size_t pos = 0;
@@ -187,7 +179,7 @@ static void bm_text_read(benchmark::State& state) {
     auto doc = make_doc();
     ObjId text_id;
     doc.transact([&](auto& tx) {
-        text_id = tx.put_object(root, "text", ObjType::text);
+        text_id = *tx.put_object(root, "text", ObjType::text);
         tx.splice_text(text_id, 0, 0, std::string(1000, 'x'));
     });
 
@@ -240,7 +232,7 @@ static void bm_save_large(benchmark::State& state) {
     auto doc = make_doc();
     ObjId list_id;
     doc.transact([&](auto& tx) {
-        list_id = tx.put_object(root, "data", ObjType::list);
+        list_id = *tx.put_object(root, "data", ObjType::list);
         for (int i = 0; i < 1000; ++i) {
             tx.insert(list_id, static_cast<std::size_t>(i), std::int64_t{i});
         }
@@ -426,9 +418,7 @@ BENCHMARK(bm_transact_with_patches);
 static void bm_transact_with_patches_text(benchmark::State& state) {
     auto doc = make_doc();
     ObjId text_id;
-    doc.transact([&](auto& tx) {
-        text_id = tx.put_object(root, "text", ObjType::text);
-    });
+    doc.transact([&](auto& tx) { text_id = *tx.put_object(root, "text", ObjType::text); });
 
     std::size_t pos = 0;
     for (auto _ : state) {
@@ -472,7 +462,7 @@ static void bm_text_at(benchmark::State& state) {
     auto doc = make_doc();
     ObjId text_id;
     doc.transact([&](auto& tx) {
-        text_id = tx.put_object(root, "text", ObjType::text);
+        text_id = *tx.put_object(root, "text", ObjType::text);
         tx.splice_text(text_id, 0, 0, "Hello");
     });
     auto heads_v1 = doc.get_heads();
@@ -497,7 +487,7 @@ static void bm_cursor_create(benchmark::State& state) {
     auto doc = make_doc();
     ObjId list_id;
     doc.transact([&](auto& tx) {
-        list_id = tx.put_object(root, "list", ObjType::list);
+        list_id = *tx.put_object(root, "list", ObjType::list);
         for (int i = 0; i < 1000; ++i) {
             tx.insert(list_id, static_cast<std::size_t>(i), std::int64_t{i});
         }
@@ -515,7 +505,7 @@ static void bm_cursor_resolve(benchmark::State& state) {
     auto doc = make_doc();
     ObjId list_id;
     doc.transact([&](auto& tx) {
-        list_id = tx.put_object(root, "list", ObjType::list);
+        list_id = *tx.put_object(root, "list", ObjType::list);
         for (int i = 0; i < 1000; ++i) {
             tx.insert(list_id, static_cast<std::size_t>(i), std::int64_t{i});
         }
