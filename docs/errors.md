@@ -44,3 +44,18 @@ The public-operation table is maintained below as boundary methods adopt these k
 | `Transaction::object_type`, `length` | Inactive transaction; unknown object | `std::expected<ObjType, Error>` or `std::expected<std::size_t, Error>` |
 | `Transaction::keys` | Inactive transaction; unknown object; non-map object | `std::expected<std::vector<std::string>, Error>` |
 | `Transaction::text` | Inactive transaction; unknown object; non-text object | `std::expected<std::string, Error>` |
+| `Document::get`, `get_all`, `operator[]` | Unknown object; non-map/list object; invalid UTF-8 key; list index not less than length | `std::expected<std::optional<Value>, Error>` or `std::expected<std::vector<Value>, Error>` |
+| `Document::get<T>` | Same validation as `get`; missing map key or scalar type mismatch is normal absence | `std::expected<std::optional<T>, Error>` |
+| `Document::get_path` | Wrong object or scalar type while traversing; invalid UTF-8 key; list index not less than length | `std::expected<std::optional<Value>, Error>` |
+| `Document::get_obj_id` | Same object, key, and index validation as `get`; a missing or scalar child is normal absence | `std::expected<std::optional<ObjId>, Error>` |
+| `Document::object_type` | Unknown object | `std::expected<ObjType, Error>` |
+| `Document::keys` | Unknown object; non-map object | `std::expected<std::vector<std::string>, Error>` |
+| `Document::values`, `length` | Unknown object | `std::expected<std::vector<Value>, Error>` or `std::expected<std::size_t, Error>` |
+| `Document::text` | Unknown object; non-text object | `std::expected<std::string, Error>` |
+| `Document::get_changes_since` | A requested head is not present in the document | `std::expected<std::vector<Change>, Error>` |
+| `Document::get_at`, `keys_at`, `values_at`, `length_at`, `text_at` | Unknown historical head; then the same object, type, key, and index validation as the current-state read | Corresponding `std::expected<T, Error>` |
+| `Document::cursor` | Unknown or non-sequence object; index not less than length | `std::expected<Cursor, Error>` |
+| `Document::resolve_cursor` | Unknown or non-sequence object; cursor belongs to another object | `std::expected<std::optional<std::size_t>, Error>` |
+| `Document::marks`, `marks_at` | Unknown or non-sequence object; `marks_at` also rejects an unknown head | `std::expected<std::vector<Mark>, Error>` |
+| `Document::load`, `load_shallow` | Malformed, corrupt, truncated, or wrong-format document bytes | `std::expected<Document, Error>` |
+| `SyncState::decode` | Malformed, truncated, wrong-type, or trailing bytes | `std::expected<SyncState, Error>` |

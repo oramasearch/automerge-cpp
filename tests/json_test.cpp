@@ -22,7 +22,7 @@ TEST(GetObjId, map_child) {
     auto doc = am::Document{};
     auto child_id = doc.transact(
         [](am::Transaction& tx) { return *tx.put_object(am::root, "nested", am::ObjType::map); });
-    auto result = doc.get_obj_id(am::root, "nested");
+    auto result = *doc.get_obj_id(am::root, "nested");
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, child_id);
 }
@@ -34,13 +34,13 @@ TEST(GetObjId, list_child) {
         tx.insert_object(list, 0, am::ObjType::map);
         return list;
     });
-    auto child = doc.get_obj_id(list_id, std::size_t{0});
+    auto child = *doc.get_obj_id(list_id, std::size_t{0});
     ASSERT_TRUE(child.has_value());
 }
 
 TEST(GetObjId, nonexistent_key_returns_nullopt) {
     auto doc = am::Document{};
-    EXPECT_FALSE(doc.get_obj_id(am::root, "nope").has_value());
+    EXPECT_FALSE((*doc.get_obj_id(am::root, "nope")).has_value());
 }
 
 TEST(GetObjId, scalar_value_returns_nullopt) {
@@ -48,7 +48,7 @@ TEST(GetObjId, scalar_value_returns_nullopt) {
     doc.transact([](am::Transaction& tx) {
         tx.put(am::root, "x", 42);
     });
-    EXPECT_FALSE(doc.get_obj_id(am::root, "x").has_value());
+    EXPECT_FALSE((*doc.get_obj_id(am::root, "x")).has_value());
 }
 
 TEST(GetObjId, out_of_bounds_index_returns_nullopt) {
@@ -56,9 +56,9 @@ TEST(GetObjId, out_of_bounds_index_returns_nullopt) {
     doc.transact([](am::Transaction& tx) {
         tx.put_object(am::root, "list", am::ObjType::list);
     });
-    auto list = doc.get_obj_id(am::root, "list");
+    auto list = *doc.get_obj_id(am::root, "list");
     ASSERT_TRUE(list.has_value());
-    EXPECT_FALSE(doc.get_obj_id(*list, std::size_t{0}).has_value());
+    EXPECT_FALSE((*doc.get_obj_id(*list, std::size_t{0})).has_value());
 }
 
 // =============================================================================
@@ -394,7 +394,7 @@ TEST(JsonImport, flat_json) {
 TEST(JsonImport, nested_objects) {
     auto doc = am::Document{};
     am::json::import_json(doc, json{{"config", {{"port", 8080}}}});
-    auto val = doc.get_path("config", "port");
+    auto val = *doc.get_path("config", "port");
     ASSERT_TRUE(val.has_value());
     EXPECT_EQ(*am::get_scalar<std::int64_t>(*val), 8080);
 }
@@ -402,20 +402,20 @@ TEST(JsonImport, nested_objects) {
 TEST(JsonImport, arrays) {
     auto doc = am::Document{};
     am::json::import_json(doc, json{{"items", {"a", "b", "c"}}});
-    auto items = doc.get_obj_id(am::root, "items");
+    auto items = *doc.get_obj_id(am::root, "items");
     ASSERT_TRUE(items.has_value());
-    EXPECT_EQ(doc.length(*items), 3u);
+    EXPECT_EQ(*doc.length(*items), 3u);
     EXPECT_EQ(*doc.get<std::string>(*items, std::size_t{0}), "a");
 }
 
 TEST(JsonImport, null_bool_float) {
     auto doc = am::Document{};
     am::json::import_json(doc, json{{"n", nullptr}, {"b", true}, {"f", 3.14}});
-    auto n = doc.get(am::root, "n");
+    auto n = *doc.get(am::root, "n");
     ASSERT_TRUE(n.has_value());
     EXPECT_TRUE(std::holds_alternative<am::Null>(std::get<am::ScalarValue>(*n)));
     EXPECT_EQ(*doc.get<bool>(am::root, "b"), true);
-    EXPECT_DOUBLE_EQ(*doc.get<double>(am::root, "f"), 3.14);
+    EXPECT_DOUBLE_EQ(**doc.get<double>(am::root, "f"), 3.14);
 }
 
 TEST(JsonImport, with_transaction) {
@@ -552,7 +552,7 @@ TEST(JsonPointer, put_creates_value) {
 TEST(JsonPointer, put_nested_creates_intermediates) {
     auto doc = am::Document{};
     am::json::put_pointer(doc, "/a/b", am::ScalarValue{std::int64_t{42}});
-    auto val = doc.get_path("a", "b");
+    auto val = *doc.get_path("a", "b");
     ASSERT_TRUE(val.has_value());
     EXPECT_EQ(*am::get_scalar<std::int64_t>(*val), 42);
 }
@@ -563,9 +563,9 @@ TEST(JsonPointer, put_list_append_with_dash) {
         tx.put(am::root, "items", am::List{"a"});
     });
     am::json::put_pointer(doc, "/items/-", am::ScalarValue{std::string{"b"}});
-    auto items = doc.get_obj_id(am::root, "items");
+    auto items = *doc.get_obj_id(am::root, "items");
     ASSERT_TRUE(items.has_value());
-    EXPECT_EQ(doc.length(*items), 2u);
+    EXPECT_EQ(*doc.length(*items), 2u);
     EXPECT_EQ(*doc.get<std::string>(*items, std::size_t{1}), "b");
 }
 
@@ -576,8 +576,8 @@ TEST(JsonPointer, delete_map_key) {
         tx.put(am::root, "y", 2);
     });
     am::json::delete_pointer(doc, "/x");
-    EXPECT_FALSE(doc.get(am::root, "x").has_value());
-    EXPECT_TRUE(doc.get(am::root, "y").has_value());
+    EXPECT_FALSE((*doc.get(am::root, "x")).has_value());
+    EXPECT_TRUE((*doc.get(am::root, "y")).has_value());
 }
 
 TEST(JsonPointer, delete_list_index) {
@@ -586,9 +586,9 @@ TEST(JsonPointer, delete_list_index) {
         tx.put(am::root, "items", am::List{"a", "b", "c"});
     });
     am::json::delete_pointer(doc, "/items/1");
-    auto items = doc.get_obj_id(am::root, "items");
+    auto items = *doc.get_obj_id(am::root, "items");
     ASSERT_TRUE(items.has_value());
-    EXPECT_EQ(doc.length(*items), 2u);
+    EXPECT_EQ(*doc.length(*items), 2u);
     EXPECT_EQ(*doc.get<std::string>(*items, std::size_t{0}), "a");
     EXPECT_EQ(*doc.get<std::string>(*items, std::size_t{1}), "c");
 }
@@ -618,8 +618,8 @@ TEST(JsonPatch, add_to_list) {
     am::json::apply_json_patch(doc, json::parse(R"([
         {"op": "add", "path": "/items/1", "value": "b"}
     ])"));
-    auto items = doc.get_obj_id(am::root, "items");
-    EXPECT_EQ(doc.length(*items), 3u);
+    auto items = *doc.get_obj_id(am::root, "items");
+    EXPECT_EQ(*doc.length(*items), 3u);
     EXPECT_EQ(*doc.get<std::string>(*items, std::size_t{1}), "b");
 }
 
@@ -631,8 +631,8 @@ TEST(JsonPatch, add_list_append_with_dash) {
     am::json::apply_json_patch(doc, json::parse(R"([
         {"op": "add", "path": "/items/-", "value": "b"}
     ])"));
-    auto items = doc.get_obj_id(am::root, "items");
-    EXPECT_EQ(doc.length(*items), 2u);
+    auto items = *doc.get_obj_id(am::root, "items");
+    EXPECT_EQ(*doc.length(*items), 2u);
     EXPECT_EQ(*doc.get<std::string>(*items, std::size_t{1}), "b");
 }
 
@@ -645,8 +645,8 @@ TEST(JsonPatch, remove_from_map) {
     am::json::apply_json_patch(doc, json::parse(R"([
         {"op": "remove", "path": "/x"}
     ])"));
-    EXPECT_FALSE(doc.get(am::root, "x").has_value());
-    EXPECT_TRUE(doc.get(am::root, "y").has_value());
+    EXPECT_FALSE((*doc.get(am::root, "x")).has_value());
+    EXPECT_TRUE((*doc.get(am::root, "y")).has_value());
 }
 
 TEST(JsonPatch, remove_from_list) {
@@ -657,8 +657,8 @@ TEST(JsonPatch, remove_from_list) {
     am::json::apply_json_patch(doc, json::parse(R"([
         {"op": "remove", "path": "/items/1"}
     ])"));
-    auto items = doc.get_obj_id(am::root, "items");
-    EXPECT_EQ(doc.length(*items), 2u);
+    auto items = *doc.get_obj_id(am::root, "items");
+    EXPECT_EQ(*doc.length(*items), 2u);
 }
 
 TEST(JsonPatch, replace) {
@@ -678,7 +678,7 @@ TEST(JsonPatch, move_between_keys) {
     am::json::apply_json_patch(doc, json::parse(R"([
         {"op": "move", "from": "/old", "path": "/new"}
     ])"));
-    EXPECT_FALSE(doc.get(am::root, "old").has_value());
+    EXPECT_FALSE((*doc.get(am::root, "old")).has_value());
     EXPECT_EQ(*doc.get<std::string>(am::root, "new"), "value");
 }
 
@@ -718,7 +718,7 @@ TEST(JsonPatch, add_nested_object) {
     am::json::apply_json_patch(doc, json::parse(R"([
         {"op": "add", "path": "/config", "value": {"port": 8080}}
     ])"));
-    auto val = doc.get_path("config", "port");
+    auto val = *doc.get_path("config", "port");
     ASSERT_TRUE(val.has_value());
     EXPECT_EQ(*am::get_scalar<std::int64_t>(*val), 8080);
 }
@@ -790,8 +790,8 @@ TEST(JsonMergePatch, delete_with_null) {
         tx.put(am::root, "y", 2);
     });
     am::json::apply_merge_patch(doc, json{{"x", nullptr}});
-    EXPECT_FALSE(doc.get(am::root, "x").has_value());
-    EXPECT_TRUE(doc.get(am::root, "y").has_value());
+    EXPECT_FALSE((*doc.get(am::root, "x")).has_value());
+    EXPECT_TRUE((*doc.get(am::root, "y")).has_value());
 }
 
 TEST(JsonMergePatch, recursive_merge) {
@@ -923,7 +923,7 @@ TEST(JsonUnflatten, recreates_nested_structure) {
     auto doc = am::Document{};
     am::json::unflatten(doc, flat);
     EXPECT_EQ(*doc.get<std::string>(am::root, "name"), "Alice");
-    auto val = doc.get_path("config", "port");
+    auto val = *doc.get_path("config", "port");
     ASSERT_TRUE(val.has_value());
     EXPECT_EQ(*am::get_scalar<std::int64_t>(*val), 8080);
 }

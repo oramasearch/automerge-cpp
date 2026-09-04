@@ -64,7 +64,7 @@ static void bm_map_get(benchmark::State& state) {
     });
 
     for (auto _ : state) {
-        auto val = doc.get(root, "key50");
+        auto val = *doc.get(root, "key50");
         benchmark::DoNotOptimize(val);
     }
     state.SetItemsProcessed(state.iterations());
@@ -80,7 +80,7 @@ static void bm_map_keys(benchmark::State& state) {
     });
 
     for (auto _ : state) {
-        auto keys = doc.keys(root);
+        auto keys = *doc.keys(root);
         benchmark::DoNotOptimize(keys);
     }
     state.SetItemsProcessed(state.iterations());
@@ -131,7 +131,7 @@ static void bm_list_get(benchmark::State& state) {
     });
 
     for (auto _ : state) {
-        auto val = doc.get(list_id, std::size_t{500});
+        auto val = *doc.get(list_id, std::size_t{500});
         benchmark::DoNotOptimize(val);
     }
     state.SetItemsProcessed(state.iterations());
@@ -184,7 +184,7 @@ static void bm_text_read(benchmark::State& state) {
     });
 
     for (auto _ : state) {
-        auto text = doc.text(text_id);
+        auto text = *doc.text(text_id);
         benchmark::DoNotOptimize(text);
     }
     state.SetItemsProcessed(state.iterations());
@@ -451,7 +451,7 @@ static void bm_get_at(benchmark::State& state) {
     }
 
     for (auto _ : state) {
-        auto val = doc.get_at(root, "x", heads_v1);
+        auto val = *doc.get_at(root, "x", heads_v1);
         benchmark::DoNotOptimize(val);
     }
     state.SetItemsProcessed(state.iterations());
@@ -472,7 +472,7 @@ static void bm_text_at(benchmark::State& state) {
     });
 
     for (auto _ : state) {
-        auto text = doc.text_at(text_id, heads_v1);
+        auto text = *doc.text_at(text_id, heads_v1);
         benchmark::DoNotOptimize(text);
     }
     state.SetItemsProcessed(state.iterations());
@@ -514,7 +514,7 @@ static void bm_cursor_resolve(benchmark::State& state) {
     auto cur = doc.cursor(list_id, 500);
 
     for (auto _ : state) {
-        auto idx = doc.resolve_cursor(list_id, *cur);
+        auto idx = *doc.resolve_cursor(list_id, *cur);
         benchmark::DoNotOptimize(idx);
     }
     state.SetItemsProcessed(state.iterations());
@@ -639,12 +639,18 @@ static void bm_load_docs(benchmark::State& state) {
         auto loaded = std::vector<std::optional<Document>>(doc_count);
         if (!parallel) {
             for (int i = 0; i < doc_count; ++i) {
-                loaded[i] = Document::load(saved[i]);
+                auto decoded = Document::load(saved[i]);
+                if (decoded) {
+                    loaded[i] = std::move(*decoded);
+                }
             }
         } else {
             g_pool->parallelize_loop(0, doc_count, [&](int start, int end) {
                 for (int i = start; i < end; ++i) {
-                    loaded[i] = Document::load(saved[i]);
+                    auto decoded = Document::load(saved[i]);
+                    if (decoded) {
+                        loaded[i] = std::move(*decoded);
+                    }
                 }
             });
         }
@@ -679,13 +685,13 @@ static void bm_concurrent_reads(benchmark::State& state) {
     for (auto _ : state) {
         if (!parallel) {
             for (int i = 0; i < total_reads; ++i) {
-                auto val = doc.get(root, "key_" + std::to_string(i));
+                auto val = *doc.get(root, "key_" + std::to_string(i));
                 benchmark::DoNotOptimize(val);
             }
         } else {
             g_pool->parallelize_loop(0, total_reads, [&](int start, int end) {
                 for (int i = start; i < end; ++i) {
-                    auto val = doc.get(root, "key_" + std::to_string(i));
+                    auto val = *doc.get(root, "key_" + std::to_string(i));
                     benchmark::DoNotOptimize(val);
                 }
             });
@@ -852,13 +858,13 @@ static void bm_get_scale(benchmark::State& state) {
     for (auto _ : state) {
         if (!parallel) {
             for (int i = 0; i < total_keys; ++i) {
-                auto val = doc.get(root, keys[i]);
+                auto val = *doc.get(root, keys[i]);
                 benchmark::DoNotOptimize(val);
             }
         } else {
             g_pool->parallelize_loop(0, total_keys, [&](int s, int e) {
                 for (int i = s; i < e; ++i) {
-                    auto val = doc.get(root, keys[i]);
+                    auto val = *doc.get(root, keys[i]);
                     benchmark::DoNotOptimize(val);
                 }
             });

@@ -307,6 +307,43 @@ namespace json {
 
 namespace {
 
+struct DocumentReader {
+    const Document& document;
+
+    auto object_type(const ObjId& obj) const -> std::optional<ObjType> {
+        const auto result = document.object_type(obj);
+        return result ? std::optional<ObjType>{*result} : std::nullopt;
+    }
+
+    auto text(const ObjId& obj) const -> std::string {
+        return document.text(obj).value_or(std::string{});
+    }
+
+    auto keys(const ObjId& obj) const -> std::vector<std::string> {
+        return document.keys(obj).value_or(std::vector<std::string>{});
+    }
+
+    auto get(const ObjId& obj, std::string_view key) const -> std::optional<Value> {
+        return document.get(obj, key).value_or(std::optional<Value>{});
+    }
+
+    auto get(const ObjId& obj, std::size_t index) const -> std::optional<Value> {
+        return document.get(obj, index).value_or(std::optional<Value>{});
+    }
+
+    auto get_obj_id(const ObjId& obj, std::string_view key) const -> std::optional<ObjId> {
+        return document.get_obj_id(obj, key).value_or(std::optional<ObjId>{});
+    }
+
+    auto get_obj_id(const ObjId& obj, std::size_t index) const -> std::optional<ObjId> {
+        return document.get_obj_id(obj, index).value_or(std::optional<ObjId>{});
+    }
+
+    auto length(const ObjId& obj) const -> std::size_t {
+        return document.length(obj).value_or(0);
+    }
+};
+
 struct TransactionReader {
     const Transaction& transaction;
 
@@ -430,7 +467,8 @@ auto export_value_at(const Document& doc, const Value& val,
                 [&](const std::string& key) { return doc.get_obj_id(parent, key); },
                 [&](std::size_t index) { return doc.get_obj_id(parent, index); },
             }, prop);
-            if (child) return export_object_at(doc, *child, heads);
+            if (child && *child)
+                return export_object_at(doc, **child, heads);
             return nlohmann::json{};
         },
         [](const ScalarValue& sv) -> nlohmann::json {
@@ -455,24 +493,24 @@ auto export_object_at(const Document& doc, const ObjId& obj,
     if (!type) return nlohmann::json{};
 
     if (*type == ObjType::text) {
-        return nlohmann::json(doc.text_at(obj, heads));
+        return nlohmann::json(doc.text_at(obj, heads).value_or(std::string{}));
     }
 
     if (*type == ObjType::map || *type == ObjType::table) {
         auto result = nlohmann::json::object();
-        for (const auto& key : doc.keys_at(obj, heads)) {
-            if (auto val = doc.get_at(obj, key, heads)) {
-                result[key] = export_value_at(doc, *val, obj, Prop{key}, heads);
+        for (const auto& key : doc.keys_at(obj, heads).value_or(std::vector<std::string>{})) {
+            if (auto val = doc.get_at(obj, key, heads); val && *val) {
+                result[key] = export_value_at(doc, **val, obj, Prop{key}, heads);
             }
         }
         return result;
     }
 
     auto result = nlohmann::json::array();
-    auto len = doc.length_at(obj, heads);
+    auto len = doc.length_at(obj, heads).value_or(0);
     for (std::size_t i = 0; i < len; ++i) {
-        if (auto val = doc.get_at(obj, i, heads)) {
-            result.push_back(export_value_at(doc, *val, obj, Prop{i}, heads));
+        if (auto val = doc.get_at(obj, i, heads); val && *val) {
+            result.push_back(export_value_at(doc, **val, obj, Prop{i}, heads));
         }
     }
     return result;
@@ -481,7 +519,7 @@ auto export_object_at(const Document& doc, const ObjId& obj,
 }  // anonymous namespace
 
 auto export_json(const Document& doc, const ObjId& obj) -> nlohmann::json {
-    return export_object_impl(doc, obj);
+    return export_object_impl(DocumentReader{doc}, obj);
 }
 
 auto export_json_at(const Document& doc,
@@ -687,6 +725,7 @@ auto try_parse_index(std::string_view segment) -> std::optional<std::size_t> {
 }  // anonymous namespace
 
 auto get_pointer(const Document& doc, std::string_view pointer) -> std::optional<Value> {
+    const auto reader = DocumentReader{doc};
     auto segments = parse_pointer(pointer);
     if (segments.empty()) {
         // Empty pointer = root. Return the root object type.
@@ -695,7 +734,7 @@ auto get_pointer(const Document& doc, std::string_view pointer) -> std::optional
 
     auto current = root;
     for (std::size_t i = 0; i < segments.size(); ++i) {
-        auto type = doc.object_type(current);
+        auto type = reader.object_type(current);
         if (!type) return std::nullopt;
 
         auto is_last = (i == segments.size() - 1);
@@ -704,17 +743,17 @@ auto get_pointer(const Document& doc, std::string_view pointer) -> std::optional
             auto idx = try_parse_index(segments[i]);
             if (!idx) return std::nullopt;
             if (is_last) {
-                return doc.get(current, *idx);
+                return reader.get(current, *idx);
             }
-            auto child = doc.get_obj_id(current, *idx);
+            auto child = reader.get_obj_id(current, *idx);
             if (!child) return std::nullopt;
             current = *child;
         } else {
             // map or table
             if (is_last) {
-                return doc.get(current, segments[i]);
+                return reader.get(current, segments[i]);
             }
-            auto child = doc.get_obj_id(current, segments[i]);
+            auto child = reader.get_obj_id(current, segments[i]);
             if (!child) return std::nullopt;
             current = *child;
         }
@@ -1126,64 +1165,83 @@ auto escape_pointer_segment(const std::string& segment) -> std::string {
 void flatten_recursive(const Document& doc, const ObjId& obj,
                        const std::string& prefix,
                        std::map<std::string, nlohmann::json>& result) {
-    auto type = doc.object_type(obj);
+    const auto reader = DocumentReader{doc};
+    auto type = reader.object_type(obj);
     if (!type) return;
 
     if (*type == ObjType::text) {
-        result[prefix.empty() ? "/" : prefix] = doc.text(obj);
+        result[prefix.empty() ? "/" : prefix] = reader.text(obj);
         return;
     }
 
     if (*type == ObjType::map || *type == ObjType::table) {
-        for (const auto& key : doc.keys(obj)) {
+        for (const auto& key : reader.keys(obj)) {
             auto path = prefix + "/" + escape_pointer_segment(key);
-            if (auto val = doc.get(obj, key)) {
-                std::visit(overload{
-                    [&](ObjType) {
-                        auto child = doc.get_obj_id(obj, key);
-                        if (child) flatten_recursive(doc, *child, path, result);
+            if (auto val = reader.get(obj, key)) {
+                std::visit(
+                    overload{
+                        [&](ObjType) {
+                            auto child = reader.get_obj_id(obj, key);
+                            if (child)
+                                flatten_recursive(doc, *child, path, result);
+                        },
+                        [&](const ScalarValue& sv) {
+                            result[path] = std::visit(
+                                overload{
+                                    [](Null) -> nlohmann::json { return nullptr; },
+                                    [](bool b) -> nlohmann::json { return b; },
+                                    [](std::int64_t i) -> nlohmann::json { return i; },
+                                    [](std::uint64_t u) -> nlohmann::json { return u; },
+                                    [](double d) -> nlohmann::json { return d; },
+                                    [](const Counter& c) -> nlohmann::json { return c.value; },
+                                    [](const Timestamp& t) -> nlohmann::json {
+                                        return t.millis_since_epoch;
+                                    },
+                                    [](const std::string& s) -> nlohmann::json { return s; },
+                                    [](const Bytes& b) -> nlohmann::json {
+                                        return base64_encode(b);
+                                    },
+                                },
+                                sv);
+                        },
                     },
-                    [&](const ScalarValue& sv) {
-                        result[path] = std::visit(overload{
-                            [](Null) -> nlohmann::json { return nullptr; },
-                            [](bool b) -> nlohmann::json { return b; },
-                            [](std::int64_t i) -> nlohmann::json { return i; },
-                            [](std::uint64_t u) -> nlohmann::json { return u; },
-                            [](double d) -> nlohmann::json { return d; },
-                            [](const Counter& c) -> nlohmann::json { return c.value; },
-                            [](const Timestamp& t) -> nlohmann::json { return t.millis_since_epoch; },
-                            [](const std::string& s) -> nlohmann::json { return s; },
-                            [](const Bytes& b) -> nlohmann::json { return base64_encode(b); },
-                        }, sv);
-                    },
-                }, *val);
+                    *val);
             }
         }
     } else {
         // list
-        auto len = doc.length(obj);
+        auto len = reader.length(obj);
         for (std::size_t i = 0; i < len; ++i) {
             auto path = prefix + "/" + std::to_string(i);
-            if (auto val = doc.get(obj, i)) {
-                std::visit(overload{
-                    [&](ObjType) {
-                        auto child = doc.get_obj_id(obj, i);
-                        if (child) flatten_recursive(doc, *child, path, result);
+            if (auto val = reader.get(obj, i)) {
+                std::visit(
+                    overload{
+                        [&](ObjType) {
+                            auto child = reader.get_obj_id(obj, i);
+                            if (child)
+                                flatten_recursive(doc, *child, path, result);
+                        },
+                        [&](const ScalarValue& sv) {
+                            result[path] = std::visit(
+                                overload{
+                                    [](Null) -> nlohmann::json { return nullptr; },
+                                    [](bool b) -> nlohmann::json { return b; },
+                                    [](std::int64_t i) -> nlohmann::json { return i; },
+                                    [](std::uint64_t u) -> nlohmann::json { return u; },
+                                    [](double d) -> nlohmann::json { return d; },
+                                    [](const Counter& c) -> nlohmann::json { return c.value; },
+                                    [](const Timestamp& t) -> nlohmann::json {
+                                        return t.millis_since_epoch;
+                                    },
+                                    [](const std::string& s) -> nlohmann::json { return s; },
+                                    [](const Bytes& b) -> nlohmann::json {
+                                        return base64_encode(b);
+                                    },
+                                },
+                                sv);
+                        },
                     },
-                    [&](const ScalarValue& sv) {
-                        result[path] = std::visit(overload{
-                            [](Null) -> nlohmann::json { return nullptr; },
-                            [](bool b) -> nlohmann::json { return b; },
-                            [](std::int64_t i) -> nlohmann::json { return i; },
-                            [](std::uint64_t u) -> nlohmann::json { return u; },
-                            [](double d) -> nlohmann::json { return d; },
-                            [](const Counter& c) -> nlohmann::json { return c.value; },
-                            [](const Timestamp& t) -> nlohmann::json { return t.millis_since_epoch; },
-                            [](const std::string& s) -> nlohmann::json { return s; },
-                            [](const Bytes& b) -> nlohmann::json { return base64_encode(b); },
-                        }, sv);
-                    },
-                }, *val);
+                    *val);
             }
         }
     }

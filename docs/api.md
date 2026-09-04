@@ -114,20 +114,20 @@ part of the encoded change body and therefore affect its hash.
 ### Reading — Maps
 
 ```cpp
-doc.get(ObjId, std::string_view key)       -> std::optional<Value>
-doc.get_all(ObjId, std::string_view key)   -> std::vector<Value>   // all conflict values
+doc.get(ObjId, std::string_view key) -> std::expected<std::optional<Value>, Error>
+doc.get_all(ObjId, std::string_view key) -> std::expected<std::vector<Value>, Error>
 ```
 
 ### Reading — Lists
 
 ```cpp
-doc.get(ObjId, std::size_t index)          -> std::optional<Value>
+doc.get(ObjId, std::size_t index) -> std::expected<std::optional<Value>, Error>
 ```
 
 ### Typed get\<T\>()
 
 Like [nlohmann/json's `get<T>()`](https://json.nlohmann.me/api/basic_json/get/),
-returns `optional<T>` directly with no variant unwrapping:
+returns `expected<optional<T>, Error>` with no variant unwrapping:
 
 ```cpp
 auto name  = doc.get<std::string>(root, "name");       // optional<string>
@@ -141,12 +141,15 @@ auto ts    = doc.get<Timestamp>(root, "created");        // optional<Timestamp>
 auto item  = doc.get<std::string>(list_id, std::size_t{0});
 ```
 
-Returns `nullopt` if the key/index doesn't exist **or** if the value is a different type.
+Map keys that do not exist and scalar type mismatches return `nullopt`. An invalid object, wrong
+object type, invalid UTF-8 key, or out-of-range list index returns an `Error`.
 
 ```cpp
 // Signatures
-template <typename T> auto get(const ObjId&, std::string_view) const -> std::optional<T>;
-template <typename T> auto get(const ObjId&, std::size_t) const -> std::optional<T>;
+template <typename T>
+auto get(const ObjId&, std::string_view) const -> std::expected<std::optional<T>, Error>;
+template <typename T>
+auto get(const ObjId&, std::size_t) const -> std::expected<std::optional<T>, Error>;
 ```
 
 ### operator[]
@@ -158,7 +161,7 @@ auto val = doc["key"];   // equivalent to doc.get(root, "key")
 ```
 
 ```cpp
-auto operator[](std::string_view key) const -> std::optional<Value>;
+auto operator[](std::string_view key) const -> std::expected<std::optional<Value>, Error>;
 ```
 
 ### get_path()
@@ -171,35 +174,36 @@ auto title = doc.get_path("todos", std::size_t{0}, "title");
 auto deep  = doc.get_path("a", "b", "c", "d");
 ```
 
-Returns `nullopt` if any intermediate path element doesn't exist or isn't an object.
+Returns `nullopt` if a map path element does not exist. Wrong object and scalar types, invalid
+UTF-8 keys, and out-of-range list indices return an `Error`.
 
 ```cpp
 template <typename... Props> requires (sizeof...(Props) > 0)
-auto get_path(Props&&... props) const -> std::optional<Value>;
+auto get_path(Props&&... props) const -> std::expected<std::optional<Value>, Error>;
 ```
 
 ### Reading — Ranges
 
 ```cpp
-doc.keys(ObjId)       -> std::vector<std::string>   // sorted map keys
-doc.values(ObjId)     -> std::vector<Value>          // values in key/index order
-doc.length(ObjId)     -> std::size_t                 // # of entries/elements/scalar values
+doc.keys(ObjId) -> std::expected<std::vector<std::string>, Error>
+doc.values(ObjId) -> std::expected<std::vector<Value>, Error>
+doc.length(ObjId) -> std::expected<std::size_t, Error>
 ```
 
 ### Reading — Text
 
 ```cpp
-doc.text(ObjId)       -> std::string                 // concatenated text content
+doc.text(ObjId) -> std::expected<std::string, Error>
 ```
 
 Text content is UTF-8. Text-object indices and `doc.length(text_obj)` count Unicode scalar values,
-matching automerge-rs `TextEncoding::UnicodeCodePoint`. `doc.text(text_obj).size()` is the UTF-8
-byte count because `std::string::size()` counts bytes.
+matching automerge-rs `TextEncoding::UnicodeCodePoint`. On success, the returned string's
+`size()` is the UTF-8 byte count.
 
 ### Object Queries
 
 ```cpp
-doc.object_type(ObjId) -> std::optional<ObjType>     // map, list, text, table
+doc.object_type(ObjId) -> std::expected<ObjType, Error>
 ```
 
 ### Fork and Merge
@@ -209,7 +213,7 @@ doc.fork()                                  -> Document              // deep cop
 doc.merge(const Document&)                  -> std::expected<void, Error>
 doc.merge_with_patches(const Document&)     -> std::expected<std::vector<Patch>, Error>
 doc.get_changes()                           -> std::vector<Change>   // full change history
-doc.get_changes_since(std::vector<ChangeHash>) -> std::vector<Change>
+doc.get_changes_since(std::vector<ChangeHash>) -> std::expected<std::vector<Change>, Error>
 doc.get_changes_added(const Document&)      -> std::vector<Change>   // changes in the argument
 doc.get_last_local_change()                 -> std::optional<Change>
 doc.apply_changes(std::vector<Change>)      -> std::expected<void, Error>
@@ -226,8 +230,8 @@ doc.save()                                  -> std::vector<std::byte>
 doc.save_compact()                          -> std::vector<std::byte>
 doc.save_incremental()                      -> std::vector<std::byte>
 doc.load_incremental(std::span<const std::byte>) -> std::expected<std::size_t, Error>
-Document::load(std::span<const std::byte>)  -> std::optional<Document>
-Document::load_shallow(std::span<const std::byte>) -> std::optional<Document>
+Document::load(std::span<const std::byte>) -> std::expected<Document, Error>
+Document::load_shallow(std::span<const std::byte>) -> std::expected<Document, Error>
 Document::load_with_patches(std::span<const std::byte>, Document& output)
                                               -> std::expected<std::vector<Patch>, Error>
 ```
@@ -242,25 +246,25 @@ doc.receive_sync_message_with_patches(SyncState&, const SyncMessage&)
 SyncMessage::encode()                       -> std::vector<std::byte>
 SyncMessage::decode(std::span<const std::byte>) -> std::expected<SyncMessage, Error>
 SyncState::encode()                         -> std::vector<std::byte>
-SyncState::decode(std::span<const std::byte>) -> std::optional<SyncState>
+SyncState::decode(std::span<const std::byte>) -> std::expected<SyncState, Error>
 ```
 
 ### Historical Reads — Time Travel
 
 ```cpp
-doc.get_at(ObjId, std::string_view key, const std::vector<ChangeHash>& heads) -> std::optional<Value>
-doc.get_at(ObjId, std::size_t index, const std::vector<ChangeHash>& heads)    -> std::optional<Value>
-doc.keys_at(ObjId, heads)    -> std::vector<std::string>
-doc.values_at(ObjId, heads)  -> std::vector<Value>
-doc.length_at(ObjId, heads)  -> std::size_t
-doc.text_at(ObjId, heads)    -> std::string
+doc.get_at(ObjId, key, heads) -> std::expected<std::optional<Value>, Error>
+doc.get_at(ObjId, index, heads) -> std::expected<std::optional<Value>, Error>
+doc.keys_at(ObjId, heads) -> std::expected<std::vector<std::string>, Error>
+doc.values_at(ObjId, heads) -> std::expected<std::vector<Value>, Error>
+doc.length_at(ObjId, heads) -> std::expected<std::size_t, Error>
+doc.text_at(ObjId, heads) -> std::expected<std::string, Error>
 ```
 
 ### Cursors — Stable Positions
 
 ```cpp
-doc.cursor(ObjId, std::size_t index)           -> std::optional<Cursor>
-doc.resolve_cursor(ObjId, const Cursor&)       -> std::optional<std::size_t>
+doc.cursor(ObjId, std::size_t index) -> std::expected<Cursor, Error>
+doc.resolve_cursor(ObjId, const Cursor&) -> std::expected<std::optional<std::size_t>, Error>
 ```
 
 Cursor indices count list elements for lists and Unicode scalar values for text objects.
@@ -268,8 +272,8 @@ Cursor indices count list elements for lists and Unicode scalar values for text 
 ### Rich Text Marks
 
 ```cpp
-doc.marks(ObjId)                               -> std::vector<Mark>
-doc.marks_at(ObjId, const std::vector<ChangeHash>&) -> std::vector<Mark>
+doc.marks(ObjId) -> std::expected<std::vector<Mark>, Error>
+doc.marks_at(ObjId, const std::vector<ChangeHash>&) -> std::expected<std::vector<Mark>, Error>
 ```
 
 Mark start and end indices count list elements for lists and Unicode scalar values for text.

@@ -48,10 +48,10 @@ int main() {
 
     // Verify with typed get<T>()
     std::printf("Imported into Automerge:\n");
-    std::printf("  name:    %s\n", doc.get<std::string>(am::root, "name")->c_str());
-    std::printf("  version: %s\n", doc.get<std::string>(am::root, "version")->c_str());
-    std::printf("  stars:   %ld\n", *doc.get<std::int64_t>(am::root, "stars"));
-    std::printf("  active:  %s\n", *doc.get<bool>(am::root, "active") ? "true" : "false");
+    std::printf("  name:    %s\n", (**doc.get<std::string>(am::root, "name")).c_str());
+    std::printf("  version: %s\n", (**doc.get<std::string>(am::root, "version")).c_str());
+    std::printf("  stars:   %ld\n", **doc.get<std::int64_t>(am::root, "stars"));
+    std::printf("  active:  %s\n", **doc.get<bool>(am::root, "active") ? "true" : "false");
 
     // =========================================================================
     // 2. Export Automerge → JSON (recursive, handles nested objects!)
@@ -85,7 +85,7 @@ int main() {
     std::printf("  Deleted /config/debug\n");
 
     std::printf("  Config after changes:\n%s\n",
-        am::json::export_json(doc, *doc.get_obj_id(am::root, "config")).dump(4).c_str());
+                am::json::export_json(doc, **doc.get_obj_id(am::root, "config")).dump(4).c_str());
 
     // =========================================================================
     // 4. Fork, merge, diff as JSON Patch
@@ -103,8 +103,8 @@ int main() {
 
     doc.merge(bob);
     std::printf("  After merge: stars=%ld, active=%s\n",
-        *doc.get<std::int64_t>(am::root, "stars"),
-        *doc.get<bool>(am::root, "active") ? "true" : "false");
+                **doc.get<std::int64_t>(am::root, "stars"),
+                **doc.get<bool>(am::root, "active") ? "true" : "false");
 
     // =========================================================================
     // 5. JSON Patch (RFC 6902)
@@ -118,9 +118,9 @@ int main() {
     ])"));
 
     std::printf("  After patch: version=%s\n",
-        doc.get<std::string>(am::root, "version")->c_str());
-    auto tags = doc.get_obj_id(am::root, "tags");
-    std::printf("  Tags count: %zu\n", doc.length(*tags));
+                (**doc.get<std::string>(am::root, "version")).c_str());
+    auto tags = *doc.get_obj_id(am::root, "tags");
+    std::printf("  Tags count: %zu\n", *doc.length(*tags));
 
     // =========================================================================
     // 6. JSON Merge Patch (RFC 7386)
